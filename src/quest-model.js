@@ -89,7 +89,7 @@ export function mergeClientMutation(game,before,after){
   next.gold=clampInt(addDelta(game.gold,before.gold,after.gold));
   next.knowledge=clampInt(addDelta(game.knowledge,before.knowledge,after.knowledge));
   next.chests=clampInt(addDelta(game.chests,before.chests,after.chests));
-  next.miningEnergy=clampInt(addDelta(game.miningEnergy,before.energy,after.energy),0,12);
+  next.miningEnergy=clampInt(addDelta(game.miningEnergy,before.energy,after.energy),0);
   next.bait=clampInt(addDelta(game.bait,before.bait,after.bait));
   next.explorationTickets=clampInt(addDelta(game.explorationTickets,before.explorationTickets,after.explorationTickets));
   next.bossHp=clampInt(addDelta(game.bossHp,before.bossHp,after.bossHp),0,Math.max(1,clampInt(game.bossMax,1)));
