@@ -42,6 +42,117 @@ function dayDiff(fromKey,toKey){
   return Number.isFinite(a)&&Number.isFinite(b)?Math.round((b-a)/86400000):Number.POSITIVE_INFINITY;
 }
 
+function zeroMaterials(){
+  return Object.fromEntries(MATERIAL_KEYS.map((key)=>[key,0]));
+}
+
+function cloneMaterials(input){
+  const source=isRecord(input)?input:{};
+  return Object.fromEntries(MATERIAL_KEYS.map((key)=>[key,clampInt(source[key])]));
+}
+
+function toClientMaterials(input){
+  const stock=cloneMaterials(input);
+  return {
+    stone:stock.stone, iron:stock.ironOre, copper:stock.copperOre, wood:stock.wood, crystal:stock.crystal,
+    ingots:stock.ironIngot, copperIngots:stock.copperIngot, gears:stock.gear, lanterns:stock.lantern
+  };
+}
+
+export function settleRegionalEconomy(state,now=new Date()){
+  const next={
+    ...state,
+    materials:cloneMaterials(state.materials),
+    regionalWarehouses:Object.fromEntries(
+      ['mountain','forest','waterside','industrial'].map((region)=>[region,cloneMaterials(state.regionalWarehouses?.[region])])
+    ),
+    wagonTransfers:Array.isArray(state.wagonTransfers)?state.wagonTransfers.map((transfer)=>({...transfer,materials:{...(transfer.materials||{})}})):[]
+  };
+  const mountain={...(next.regionalWarehouses.mountain??zeroMaterials())};
+  const hiredUntilMs=Date.parse(next.minerHiredUntil||'');
+  const lastMs=Date.parse(next.minerLastSettledAt||'');
+  if(Number.isFinite(hiredUntilMs)&&Number.isFinite(lastMs)&&hiredUntilMs>lastMs){
+    const settleTo=Math.min(now.getTime(),hiredUntilMs);
+    const cycles=Math.max(0,Math.floor((settleTo-lastMs)/10000));
+    if(cycles>0){
+      mountain.stone=clampInt(mountain.stone)+cycles*2;
+      mountain.ironOre=clampInt(mountain.ironOre)+cycles;
+      next.minerLastSettledAt=new Date(lastMs+cycles*10000).toISOString();
+    }
+  }
+  next.regionalWarehouses={...next.regionalWarehouses,mountain};
+  const arrived=next.wagonTransfers.filter((transfer)=>Date.parse(transfer.arrivesAt)<=now.getTime());
+  for(const transfer of arrived){
+    for(const [key,amount] of Object.entries(transfer.materials||{})){
+      if(MATERIAL_KEYS.includes(key)) next.materials[key]=clampInt(next.materials[key])+clampInt(amount);
+    }
+  }
+  next.wagonTransfers=next.wagonTransfers.filter((transfer)=>Date.parse(transfer.arrivesAt)>now.getTime());
+  return next;
+}
+
+export function applyGameAction(game,input,now=new Date()){
+  const current=settleRegionalEconomy(game,now);
+  const next={
+    ...current,
+    materials:{...current.materials},
+    regionalWarehouses:Object.fromEntries(Object.entries(current.regionalWarehouses||{}).map(([region,stock])=>[region,{...stock}])),
+    wagonTransfers:[...(current.wagonTransfers||[])],
+    automations:[...(current.automations||[])],
+    updatedAt:now.toISOString()
+  };
+  let message='';
+  let reward={};
+
+  if(input?.action==='railway_build_first_freight'){
+    if(clampInt(current.railwayTrainCount)>0) throw new Error('初期簡易貨物列車はすでに製造済みです。');
+    if(clampInt(current.materials?.ironOre)<100) throw new Error('初期簡易貨物列車には鉄鉱石100が必要です。');
+    next.materials.ironOre=clampInt(next.materials.ironOre)-100;
+    next.railwayTrainCount=1;
+    next.railwayDepotUnlocked=true;
+    reward={train:'初期簡易貨物列車',ironOre:-100};
+    message='初期簡易貨物列車が完成。連動して簡易車庫が開設された！';
+  }else if(input?.action==='hire_miner'){
+    if(clampInt(current.gold)<1200) throw new Error('鉱夫を1時間雇うには1200G必要です。');
+    const activeUntil=Date.parse(current.minerHiredUntil||'');
+    const startMs=Number.isFinite(activeUntil)&&activeUntil>now.getTime()?activeUntil:now.getTime();
+    next.gold=clampInt(next.gold)-1200;
+    next.minerLastSettledAt=Number.isFinite(activeUntil)&&activeUntil>now.getTime()?current.minerLastSettledAt:now.toISOString();
+    next.minerHiredUntil=new Date(startMs+60*60*1000).toISOString();
+    reward={minerMinutes:60};
+    message='鉱夫を1時間・1200Gで雇用。10秒ごとに採掘し、産出物は山岳倉庫へ保管される。';
+  }else if(input?.action==='wagon_mountain_to_main'){
+    if(clampInt(current.gold)<50) throw new Error('馬車を出すには50G必要です。');
+    const mountain={...(next.regionalWarehouses.mountain??zeroMaterials())};
+    const cargo={};
+    for(const key of MATERIAL_KEYS) if(clampInt(mountain[key])>0) cargo[key]=clampInt(mountain[key]);
+    if(Object.keys(cargo).length===0) throw new Error('山岳倉庫に運ぶ物資がありません。');
+    for(const key of MATERIAL_KEYS) mountain[key]=0;
+    const arrivesAt=new Date(now.getTime()+30*60*1000);
+    next.gold=clampInt(next.gold)-50;
+    next.regionalWarehouses={...next.regionalWarehouses,mountain};
+    next.wagonTransfers=[...next.wagonTransfers,{id:`wagon-${now.getTime()}`,from:'mountain',to:'main',materials:cargo,startedAt:now.toISOString(),arrivesAt:arrivesAt.toISOString()}].slice(-20);
+    reward={wagonCost:50};
+    message='馬車を50Gで手配。山岳倉庫の物資を積み込み、30分後にメイン開発拠点へ到着する。';
+  }else if(input?.action==='unlock_automation'){
+    const costs={freight_load:30,freight_unload:30,maintenance:30,depot:30,reserve:60};
+    const key=typeof input?.automation==='string'?input.automation:'';
+    const cost=costs[key];
+    if(!cost) throw new Error('不明な自動化です。');
+    if(next.automations.includes(key)) throw new Error('この自動化は解放済みです。');
+    if(clampInt(current.lq)<cost) throw new Error(`この自動化には${cost} LQ必要です。`);
+    next.lq=clampInt(next.lq)-cost;
+    next.automations=[...next.automations,key];
+    const labels={freight_load:'貨物積み込み自動化',freight_unload:'貨物荷下ろし自動化',maintenance:'整備自動化',depot:'入出庫自動化',reserve:'予備編成交代'};
+    reward={automation:key};
+    message=`${labels[key]}を解放した。`;
+  }else{
+    throw new Error('未対応のLIFE QUESTアクションです。');
+  }
+
+  return {next:applyProgression(next),message,reward};
+}
+
 export function applyProgression(state,completedAt=new Date().toISOString()){
   const cards=new Set(Array.isArray(state.eventCards)?state.eventCards:[]);
   if(clampInt(state.totalVerified)>=1) cards.add('first_verified');
@@ -78,7 +189,17 @@ export function clientSaveFromGame(game){
     ingots:clampInt(game.materials?.ironIngot),copperIngots:clampInt(game.materials?.copperIngot),gears:clampInt(game.materials?.gear),lanterns:clampInt(game.materials?.lantern),fishCaught:clampInt(game.fishingTotal),fishRecords,discoveredFish,fishInventory,bait:clampInt(game.bait),
     discoveries:clampInt(game.explorationTotal),loot:clampInt(ext.loot),explorationTickets:clampInt(game.explorationTickets),expedition,xp:clampInt(game.totalXp),lq:clampInt(game.lq),gold:clampInt(game.gold),knowledge:clampInt(game.knowledge),chests:clampInt(game.chests),bossHp:clampInt(game.bossHp),bossMax:clampInt(game.bossMax,1),
     mineLevel:clampInt(game.mineLevel,1,3),workshopLevel:clampInt(game.workshopLevel,1,3),rocksBroken:clampInt(game.minedTotal),casts:clampInt(ext.casts),crafted:clampInt(game.craftedTotal),chestsOpened:clampInt(game.chestsOpened),exploredLocations:isRecord(ext.exploredLocations)?ext.exploredLocations:{},guildRewardClaimed:Boolean(ext.guildRewardClaimed),
-    discoveredItems:(game.discoveredItems||[]).map((key)=>CANONICAL_TO_CLIENT_ITEM[key]??key),eventCards:(game.eventCards||[]).map((key)=>CANONICAL_TO_CLIENT_CARD[key]??key),hallOfFame,railwayTrainCount:clampInt(game.railwayTrainCount),railwayDepotUnlocked:Boolean(game.railwayDepotUnlocked),updatedAt:Date.parse(game.updatedAt)||Date.now()
+    discoveredItems:(game.discoveredItems||[]).map((key)=>CANONICAL_TO_CLIENT_ITEM[key]??key),eventCards:(game.eventCards||[]).map((key)=>CANONICAL_TO_CLIENT_CARD[key]??key),hallOfFame,
+    railwayTrainCount:clampInt(game.railwayTrainCount),railwayDepotUnlocked:Boolean(game.railwayDepotUnlocked),
+    automations:[...(Array.isArray(game.automations)?game.automations:[])],
+    regionalWarehouses:Object.fromEntries(Object.entries(game.regionalWarehouses||{}).map(([region,stock])=>[region,toClientMaterials(stock)])),
+    wagonTransfers:(Array.isArray(game.wagonTransfers)?game.wagonTransfers:[]).map((transfer)=>({
+      id:transfer.id,from:transfer.from,to:transfer.to,materials:toClientMaterials(transfer.materials),
+      startedAt:transfer.startedAt,arrivesAt:transfer.arrivesAt
+    })),
+    minerHiredUntil:typeof game.minerHiredUntil==='string'?game.minerHiredUntil:'',
+    minerLastSettledAt:typeof game.minerLastSettledAt==='string'?game.minerLastSettledAt:'',
+    updatedAt:Date.parse(game.updatedAt)||Date.now()
   };
 }
 
