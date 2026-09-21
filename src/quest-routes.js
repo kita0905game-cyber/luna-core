@@ -39,7 +39,7 @@ export async function handleQuestRequest(request,env){
   }
   if(url.pathname==='/quest/client/mutation'&&request.method==='PUT'){
     if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
-    try{const body=await request.json(),payload=await questStore(env).applyClientMutation(body?.before,body?.after);return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',...payload,time:new Date().toISOString()});}
+    try{const body=await request.json(),payload=await questStore(env).applyClientMutation(body?.mutationId,body?.before,body?.after);return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',...payload,time:new Date().toISOString()});}
     catch(error){return questJson({ok:false,error:error instanceof Error?error.message:'invalid_mutation'},{status:400});}
   }
   if(url.pathname==='/quest/study/event'&&request.method==='POST'){
