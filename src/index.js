@@ -6,6 +6,7 @@ export default {
       return Response.json({
         ok: true,
         service: "LUNA CORE",
+        deployProbe: "2026-09-22-a",
         time: new Date().toISOString(),
       });
     }
