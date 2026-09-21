@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 
-const LEGACY_RESULTS_URL = "https://3-qiawue.v2.appdeploy.ai/api/results";
 const QUEST_OBJECT_NAME = "primary";
-const MIGRATION_VERSION = 2;
+const MIGRATION_VERSION = 3;
+const MIGRATION_TOKEN_SHA256 = "f68b243c55704de21b3187a174d9c657fb50b80143f37963a1a15cd282d0e5d3";
 
 function json(data, init = {}) {
   return Response.json(data, init);
@@ -49,10 +49,14 @@ function validateLegacyGame(game) {
   if (typeof game.updatedAt !== "string") throw new Error("Legacy updatedAt is invalid");
 }
 
-async function sha256Json(value) {
-  const bytes = new TextEncoder().encode(JSON.stringify(value));
+async function sha256Text(value) {
+  const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Json(value) {
+  return sha256Text(JSON.stringify(value));
 }
 
 export class QuestStateStore extends DurableObject {
@@ -61,11 +65,11 @@ export class QuestStateStore extends DurableObject {
   }
 
   async migrationStatus() {
-    return (await this.ctx.storage.get("migration_game_meta_v2")) ?? { status: "empty", version: MIGRATION_VERSION };
+    return (await this.ctx.storage.get("migration_game_meta_v3")) ?? { status: "empty", version: MIGRATION_VERSION };
   }
 
   async activateMigratedGame(game, meta) {
-    const existing = await this.ctx.storage.get("migration_game_meta_v2");
+    const existing = await this.ctx.storage.get("migration_game_meta_v3");
     if (existing?.status === "active") return existing;
 
     const activeMeta = {
@@ -77,9 +81,9 @@ export class QuestStateStore extends DurableObject {
       activatedAt: new Date().toISOString(),
     };
 
-    await this.ctx.storage.put("migration_game_snapshot_v2", game);
+    await this.ctx.storage.put("migration_game_snapshot_v3", game);
     await this.ctx.storage.put("active_game_v1", game);
-    await this.ctx.storage.put("migration_game_meta_v2", activeMeta);
+    await this.ctx.storage.put("migration_game_meta_v3", activeMeta);
     return activeMeta;
   }
 
@@ -91,7 +95,7 @@ export class QuestStateStore extends DurableObject {
       attemptAt: new Date().toISOString(),
       lastError: String(message).slice(0, 500),
     };
-    await this.ctx.storage.put("migration_game_meta_v2", meta);
+    await this.ctx.storage.put("migration_game_meta_v3", meta);
     return meta;
   }
 
@@ -114,43 +118,10 @@ function questStore(env) {
   return env.QUEST_STATE.getByName(QUEST_OBJECT_NAME);
 }
 
-async function migrateLegacyGame(env) {
-  const store = questStore(env);
-  const existing = await store.migrationStatus();
-  if (existing?.status === "active") return existing;
-
-  try {
-    const response = await fetch(LEGACY_RESULTS_URL, {
-      headers: { Accept: "application/json" },
-      redirect: "follow",
-    });
-
-    if (!response.ok) {
-      throw new Error(`AppDeploy export returned HTTP ${response.status}`);
-    }
-
-    const payload = await response.json();
-    const game = payload?.game;
-    validateLegacyGame(game);
-
-    const checksum = await sha256Json(game);
-    const meta = {
-      source: LEGACY_RESULTS_URL,
-      sourceAppId: "3-qiawue",
-      fetchedAt: new Date().toISOString(),
-      snapshotSha256: checksum,
-      gameUpdatedAt: game.updatedAt,
-      gameFieldCount: Object.keys(game).length,
-      schema: "appdeploy-life-quest-v31",
-      bookkeepingMigrated: false,
-    };
-
-    return await store.activateMigratedGame(game, meta);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown migration error";
-    await store.recordMigrationError(message);
-    throw error;
-  }
+async function verifyMigrationToken(request) {
+  const token = request.headers.get("X-Luna-Migration-Token") ?? "";
+  if (!token) return false;
+  return (await sha256Text(token)) === MIGRATION_TOKEN_SHA256;
 }
 
 export default {
@@ -162,6 +133,18 @@ export default {
         ok: true,
         service: "LUNA CORE",
         time: new Date().toISOString(),
+      });
+    }
+
+    if (request.method === "OPTIONS" && url.pathname.startsWith("/quest")) {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, X-Luna-Migration-Token",
+          "Access-Control-Max-Age": "86400",
+        },
       });
     }
 
@@ -180,22 +163,74 @@ export default {
     }
 
     if (url.pathname === "/quest/migration/status") {
-      let status = await questStore(env).migrationStatus();
-      if (status?.status !== "active") {
-        try {
-          status = await migrateLegacyGame(env);
-        } catch {
-          status = await questStore(env).migrationStatus();
-        }
-      }
-
+      const status = await questStore(env).migrationStatus();
       return questJson({
         ok: status?.status === "active",
         service: "LUNA CORE",
         module: "LIFE QUEST",
         migration: status,
         time: new Date().toISOString(),
-      }, { status: status?.status === "active" ? 200 : 502 });
+      }, { status: status?.status === "active" ? 200 : 200 });
+    }
+
+    if (url.pathname === "/quest/migration/import" && request.method === "POST") {
+      const store = questStore(env);
+      const current = await store.migrationStatus();
+      if (current?.status === "active") {
+        return questJson({
+          ok: true,
+          service: "LUNA CORE",
+          module: "LIFE QUEST",
+          migration: current,
+          message: "Migration already completed.",
+          time: new Date().toISOString(),
+        });
+      }
+
+      if (!(await verifyMigrationToken(request))) {
+        return questJson({ ok: false, error: "invalid_migration_token" }, { status: 403 });
+      }
+
+      try {
+        const payload = await request.json();
+        if (payload?.sourceAppId !== "3-qiawue") {
+          throw new Error("Unexpected migration source");
+        }
+
+        const game = payload?.game;
+        validateLegacyGame(game);
+        const checksum = await sha256Json(game);
+
+        const meta = {
+          source: "appdeploy-client-push",
+          sourceAppId: "3-qiawue",
+          fetchedAt: new Date().toISOString(),
+          snapshotSha256: checksum,
+          gameUpdatedAt: game.updatedAt,
+          gameFieldCount: Object.keys(game).length,
+          schema: "appdeploy-life-quest-v31",
+          bookkeepingMigrated: false,
+        };
+
+        const migration = await store.activateMigratedGame(game, meta);
+        return questJson({
+          ok: true,
+          service: "LUNA CORE",
+          module: "LIFE QUEST",
+          migration,
+          time: new Date().toISOString(),
+        }, { status: 201 });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown migration error";
+        const migration = await store.recordMigrationError(message);
+        return questJson({
+          ok: false,
+          service: "LUNA CORE",
+          module: "LIFE QUEST",
+          migration,
+          time: new Date().toISOString(),
+        }, { status: 400 });
+      }
     }
 
     if (url.pathname === "/quest/state") {
@@ -209,40 +244,14 @@ export default {
       }, { status: state.active ? 200 : 503 });
     }
 
-    if (request.method === "OPTIONS" && url.pathname.startsWith("/quest")) {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Max-Age": "86400",
-        },
-      });
-    }
-
     return new Response("LUNA CORE is running");
   },
 
-  async scheduled(controller, env) {
+  scheduled(controller) {
     console.log(JSON.stringify({
       event: "LUNA_CORE_SCHEDULED",
       cron: controller.cron,
       scheduledTime: controller.scheduledTime,
     }));
-
-    try {
-      const migration = await migrateLegacyGame(env);
-      console.log(JSON.stringify({
-        event: "LQ_GAME_MIGRATION",
-        status: migration?.status ?? "unknown",
-        snapshotSha256: migration?.snapshotSha256 ?? null,
-      }));
-    } catch (error) {
-      console.error(JSON.stringify({
-        event: "LQ_GAME_MIGRATION_ERROR",
-        message: error instanceof Error ? error.message : "unknown",
-      }));
-    }
   },
 };
