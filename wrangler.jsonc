@@ -9,5 +9,19 @@
     "crons": [
       "*/5 * * * *"
     ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "QUEST_STATE",
+        "class_name": "QuestStateStore"
+      }
+    ]
+  },
+  "exports": {
+    "QuestStateStore": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
   }
 }
