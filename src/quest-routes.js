@@ -41,6 +41,16 @@ export async function handleQuestRequest(request,env){
     try{const body=await request.json(),payload=await questStore(env).applyClientMutation(body?.mutationId,body?.before,body?.after);return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',...payload,time:new Date().toISOString()});}
     catch(error){return questJson({ok:false,error:error instanceof Error?error.message:'invalid_mutation'},{status:400});}
   }
+  if(url.pathname==='/quest/action'&&request.method==='POST'){
+    if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    try{
+      const body=await request.json();
+      const receipt=await questStore(env).applyGameAction(body?.actionId,{action:body?.action,automation:body?.automation});
+      return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',receipt,time:new Date().toISOString()});
+    }catch(error){
+      return questJson({ok:false,error:error instanceof Error?error.message:'invalid_game_action'},{status:400});
+    }
+  }
   if(url.pathname==='/quest/study/event'&&request.method==='POST'){
     if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
     try{
