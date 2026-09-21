@@ -2,8 +2,7 @@ import { validateLegacyGame, sha256Text, sha256Json } from './quest-model.js';
 
 const QUEST_OBJECT_NAME='primary';
 const MIGRATION_TOKEN_SHA256='f68b243c55704de21b3187a174d9c657fb50b80143f37963a1a15cd282d0e5d3';
-const CLIENT_TOKEN_SHA256='ae2134cd581dba29d8253d9378c95c5ada1061836ec6724b0349e9dad1421ce2';
-const STUDY_EVENT_TOKEN_SHA256='120f592e53a3f58a13b9a1909764ad337f30eccb9287cd899e6993fe95c68a61';
+const CLIENT_TOKEN_SHA256='06f0c083863aecf80c4c000869ed3aa792df0cb432a50d6ddbce31cf607770e9';
 
 const questStore=(env)=>env.QUEST_STATE.getByName(QUEST_OBJECT_NAME);
 const questJson=(data,init={})=>{const headers=new Headers(init.headers||{});headers.set('Access-Control-Allow-Origin','*');headers.set('Cache-Control','no-store');return Response.json(data,{...init,headers});};
@@ -11,7 +10,7 @@ async function verify(request,header,expected,bearer=false){let token=request.he
 
 export async function handleQuestRequest(request,env){
   const url=new URL(request.url); if(!url.pathname.startsWith('/quest')) return null;
-  if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, PUT, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization, X-Luna-Migration-Token, X-Luna-Study-Token','Access-Control-Max-Age':'86400'}});
+  if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, PUT, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization, X-Luna-Migration-Token','Access-Control-Max-Age':'86400'}});
   if(url.pathname==='/quest'){
     const state=await questStore(env).activeStateMeta();
     return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',status:state.active?'operational':'migration-pending',message:state.active?'LIFE QUEST is operational on LUNA CORE.':'LIFE QUEST game-state migration is pending.',time:new Date().toISOString()});
@@ -43,7 +42,7 @@ export async function handleQuestRequest(request,env){
     catch(error){return questJson({ok:false,error:error instanceof Error?error.message:'invalid_mutation'},{status:400});}
   }
   if(url.pathname==='/quest/study/event'&&request.method==='POST'){
-    if(!(await verify(request,'X-Luna-Study-Token',STUDY_EVENT_TOKEN_SHA256))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
     try{
       const body=await request.json(); if(body?.source!=='airtable-mirrored-study'||typeof body?.eventId!=='string'||!body.eventId||typeof body?.category!=='string'||typeof body?.correct!=='boolean') throw new Error('Invalid study event');
       const receipt=await questStore(env).applyStudyEvent({eventId:body.eventId,category:body.category,correct:body.correct,masteryStatus:typeof body.masteryStatus==='string'?body.masteryStatus:'未判定',answeredAt:typeof body.answeredAt==='string'?body.answeredAt:new Date().toISOString()});
