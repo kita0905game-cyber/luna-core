@@ -22,10 +22,14 @@ export class QuestStateStore extends DurableObject {
     return {active:Boolean(game),status:game?'active':'not-ready',source:migration?.sourceAppId??null,snapshotSha256:migration?.snapshotSha256??null,gameUpdatedAt:game?.updatedAt??migration?.gameUpdatedAt??null,migratedFieldCount:migration?.gameFieldCount??null,migrationVersion:migration?.version??MIGRATION_VERSION};
   }
   async clientBootstrap(){ const game=await this.activeGame(); return game?{save:clientSaveFromGame(game),gameUpdatedAt:game.updatedAt}:null; }
-  async applyClientMutation(before,after){
+  async applyClientMutation(mutationId,before,after){
+    if(typeof mutationId!=='string'||!mutationId) throw new Error('Missing mutation id');
+    const key=`client_mutation:${mutationId}`,processed=await this.ctx.storage.get(key);
+    if(processed) return {duplicate:true,...processed};
     const current=await this.activeGame(); if(!current) throw new Error('LIFE QUEST state is not ready');
     const next=mergeClientMutation(current,before,after); await this.ctx.storage.put('active_game_v1',next);
-    return {save:clientSaveFromGame(next),gameUpdatedAt:next.updatedAt};
+    const receipt={duplicate:false,save:clientSaveFromGame(next),gameUpdatedAt:next.updatedAt};
+    await this.ctx.storage.put(key,receipt); return receipt;
   }
   async applyStudyEvent(event){
     const key=`study_event:${event.eventId}`,processed=await this.ctx.storage.get(key); if(processed) return {duplicate:true,...processed};
