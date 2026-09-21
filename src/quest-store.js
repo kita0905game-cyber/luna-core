@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MIGRATION_VERSION, clientSaveFromGame, mergeClientMutation, applyStudyReward } from './quest-model.js';
+import { MIGRATION_VERSION, clientSaveFromGame, mergeClientMutation, applyStudyReward, settleRegionalEconomy, applyGameAction } from './quest-model.js';
 
 export class QuestStateStore extends DurableObject {
   async migrationStatus(){ return (await this.ctx.storage.get('migration_game_meta_v3'))??{status:'empty',version:MIGRATION_VERSION}; }
@@ -17,25 +17,44 @@ export class QuestStateStore extends DurableObject {
     await this.ctx.storage.put('migration_game_meta_v3',meta); return meta;
   }
   async activeGame(){ return (await this.ctx.storage.get('active_game_v1'))??null; }
+  async settledGame(){
+    const current=await this.activeGame(); if(!current) return null;
+    const settled=settleRegionalEconomy(current);
+    if(JSON.stringify(settled)!==JSON.stringify(current)){
+      settled.updatedAt=new Date().toISOString();
+      await this.ctx.storage.put('active_game_v1',settled);
+    }
+    return settled;
+  }
   async activeStateMeta(){
     const game=await this.activeGame(),migration=await this.migrationStatus();
     return {active:Boolean(game),status:game?'active':'not-ready',source:migration?.sourceAppId??null,snapshotSha256:migration?.snapshotSha256??null,gameUpdatedAt:game?.updatedAt??migration?.gameUpdatedAt??null,migratedFieldCount:migration?.gameFieldCount??null,migrationVersion:migration?.version??MIGRATION_VERSION};
   }
-  async clientBootstrap(){ const game=await this.activeGame(); return game?{save:clientSaveFromGame(game),gameUpdatedAt:game.updatedAt}:null; }
+  async clientBootstrap(){ const game=await this.settledGame(); return game?{save:clientSaveFromGame(game),gameUpdatedAt:game.updatedAt}:null; }
   async applyClientMutation(mutationId,before,after){
     if(typeof mutationId!=='string'||!mutationId) throw new Error('Missing mutation id');
     const key=`client_mutation:${mutationId}`,processed=await this.ctx.storage.get(key);
     if(processed) return {duplicate:true,...processed};
-    const current=await this.activeGame(); if(!current) throw new Error('LIFE QUEST state is not ready');
+    const current=await this.settledGame(); if(!current) throw new Error('LIFE QUEST state is not ready');
     const next=mergeClientMutation(current,before,after); await this.ctx.storage.put('active_game_v1',next);
     const receipt={duplicate:false,save:clientSaveFromGame(next),gameUpdatedAt:next.updatedAt};
     await this.ctx.storage.put(key,receipt); return receipt;
   }
   async applyStudyEvent(event){
     const key=`study_event:${event.eventId}`,processed=await this.ctx.storage.get(key); if(processed) return {duplicate:true,...processed};
-    const current=await this.activeGame(); if(!current) throw new Error('LIFE QUEST state is not ready');
+    const current=await this.settledGame(); if(!current) throw new Error('LIFE QUEST state is not ready');
     const {next,reward}=applyStudyReward(current,event);
     const receipt={duplicate:false,eventId:event.eventId,reward,lqBalance:next.lq,processedAt:new Date().toISOString()};
     await this.ctx.storage.put('active_game_v1',next); await this.ctx.storage.put(key,receipt); return receipt;
+  }
+  async applyGameAction(actionId,input){
+    if(typeof actionId!=='string'||!actionId) throw new Error('Missing action id');
+    const key=`game_action:${actionId}`,processed=await this.ctx.storage.get(key);
+    if(processed) return {duplicate:true,...processed};
+    const current=await this.settledGame(); if(!current) throw new Error('LIFE QUEST state is not ready');
+    const {next,message,reward}=applyGameAction(current,input);
+    await this.ctx.storage.put('active_game_v1',next);
+    const receipt={duplicate:false,actionId,message,reward,save:clientSaveFromGame(next),gameUpdatedAt:next.updatedAt,processedAt:new Date().toISOString()};
+    await this.ctx.storage.put(key,receipt); return receipt;
   }
 }
