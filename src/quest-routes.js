@@ -2,7 +2,7 @@ import { validateLegacyGame, sha256Text, sha256Json } from './quest-model.js';
 
 const QUEST_OBJECT_NAME='primary';
 const MIGRATION_TOKEN_SHA256='f68b243c55704de21b3187a174d9c657fb50b80143f37963a1a15cd282d0e5d3';
-const CLIENT_TOKEN_SHA256='06f0c083863aecf80c4c000869ed3aa792df0cb432a50d6ddbce31cf607770e9';
+const CLIENT_TOKEN_SHA256='0a5855c3306ad2afde78e17debf90b4d3dbd432725e776a8dc5c5c4674c3f927';
 
 const questStore=(env)=>env.QUEST_STATE.getByName(QUEST_OBJECT_NAME);
 const questJson=(data,init={})=>{const headers=new Headers(init.headers||{});headers.set('Access-Control-Allow-Origin','*');headers.set('Cache-Control','no-store');return Response.json(data,{...init,headers});};
