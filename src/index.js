@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 const QUEST_OBJECT_NAME = "primary";
 const MIGRATION_VERSION = 3;
 const MIGRATION_TOKEN_SHA256 = "f68b243c55704de21b3187a174d9c657fb50b80143f37963a1a15cd282d0e5d3";
+const STATE_READ_TOKEN_SHA256 = "6d2f1d6cccbf0fd45d3f48c57b2e1b540287245340ff7fdc9dece08851da07c7";
 
 function json(data, init = {}) {
   return Response.json(data, init);
@@ -112,6 +113,10 @@ export class QuestStateStore extends DurableObject {
       migrationVersion: migration?.version ?? MIGRATION_VERSION,
     };
   }
+
+  async activeGame() {
+    return (await this.ctx.storage.get("active_game_v1")) ?? null;
+  }
 }
 
 function questStore(env) {
@@ -122,6 +127,14 @@ async function verifyMigrationToken(request) {
   const token = request.headers.get("X-Luna-Migration-Token") ?? "";
   if (!token) return false;
   return (await sha256Text(token)) === MIGRATION_TOKEN_SHA256;
+}
+
+async function verifyStateReadToken(request) {
+  const authorization = request.headers.get("Authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) return false;
+  const token = authorization.slice("Bearer ".length).trim();
+  if (!token) return false;
+  return (await sha256Text(token)) === STATE_READ_TOKEN_SHA256;
 }
 
 export default {
@@ -142,7 +155,7 @@ export default {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, X-Luna-Migration-Token",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Luna-Migration-Token",
           "Access-Control-Max-Age": "86400",
         },
       });
@@ -170,7 +183,7 @@ export default {
         module: "LIFE QUEST",
         migration: status,
         time: new Date().toISOString(),
-      }, { status: status?.status === "active" ? 200 : 200 });
+      });
     }
 
     if (url.pathname === "/quest/migration/import" && request.method === "POST") {
@@ -242,6 +255,26 @@ export default {
         state,
         time: new Date().toISOString(),
       }, { status: state.active ? 200 : 503 });
+    }
+
+    if (url.pathname === "/quest/state/full" && request.method === "GET") {
+      if (!(await verifyStateReadToken(request))) {
+        return questJson({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+
+      const game = await questStore(env).activeGame();
+      if (!game) {
+        return questJson({ ok: false, error: "state_not_ready" }, { status: 503 });
+      }
+
+      return questJson({
+        ok: true,
+        service: "LUNA CORE",
+        module: "LIFE QUEST",
+        game,
+        readOnly: true,
+        time: new Date().toISOString(),
+      });
     }
 
     return new Response("LUNA CORE is running");
