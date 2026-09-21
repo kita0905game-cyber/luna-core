@@ -1,54 +1,106 @@
-# LIFE QUEST integration v0.1
+# LIFE QUEST integration v1
 
-## Goal
-LUNA CORE is the shared backend/orchestration layer.
-LIFE QUEST remains an independent React/TypeScript/Phaser/PWA client.
+## Production architecture
 
-## Current deployment model
-- GitHub `main` is the production source of truth.
-- Updating `main` automatically deploys the entire Worker to Cloudflare Workers.
-- `/health` is only a liveness endpoint, not a health-management feature.
-- Any future route added to the Worker (for example `/quest`) will be published by the same deployment pipeline after merge to `main`.
+LUNA CORE is the LIFE QUEST backend and orchestration layer.
+LIFE QUEST remains an independent React / TypeScript / Phaser / PWA client.
 
-## v0.1 scope
-This branch only introduces a non-destructive `GET /quest` scaffold.
+Current responsibility split:
 
-Existing behavior preserved:
-- `GET /health` -> liveness JSON
-- all other unmatched routes -> `LUNA CORE is running`
-- scheduled cron logging remains unchanged
+- AppDeploy: user study UI
+- Airtable: user study-data record area
+- GitHub: source of LIFE QUEST / LUNA CORE logic
+- Cloudflare Workers: runtime for LUNA CORE
+- Durable Object SQLite: canonical LIFE QUEST GameState
+- LIFE QUEST PWA: gameplay client
 
-## Planned LIFE QUEST API phases
+## Deployment
 
-### Phase 1 - Read-only
-- `GET /quest`
-- `GET /quest/state`
-- `GET /quest/events`
+- `kita0905game-cyber/luna-core` main is the production Worker source.
+- Updating main automatically deploys the entire Worker to Cloudflare Workers.
+- `/health` is liveness only.
+- `/quest` reports LIFE QUEST operational state.
 
-No production game state mutation.
+## Migration
 
-### Phase 2 - Versioned state writes
-- `PUT /quest/state`
-- optimistic version checks
-- audit log
-- rollback snapshots
+The AppDeploy LIFE QUEST GameState was migrated on 2026-09-22 through a one-time browser-assisted push.
 
-### Phase 3 - Real-world event bridge
-- bookkeeping/study events
-- weather/time context
-- future calendar/life events
+Migration guarantees:
 
-### Phase 4 - MAGI observation
-MAGI may inspect code, logs, tests and game state but cannot merge or deploy.
+- scope: game-only
+- bookkeeping records were not migrated
+- source snapshot is immutable
+- active GameState is stored separately
+- legacy AppDeploy data was not deleted
+- migration endpoint is idempotent after activation
 
-### Phase 5 - Guarded autonomous changes
-Only low-risk changes may be auto-merged after:
-- three independent AI approvals
-- automated tests
-- deterministic policy gate
-- rollback point creation
+## Gameplay sync
 
-High-risk areas such as save migrations, economy rules, study-to-LQ conversion, authentication and destructive changes remain human-authorized.
+The PWA bootstraps from LUNA CORE and keeps a local copy for responsiveness and offline operation.
 
-## Non-negotiable migration rule
-Do not erase or devalue existing LIFE QUEST saves, history, LQ/G/XP, bookkeeping progress, achievements, or prior effort for implementation convenience.
+Each local gameplay change is sent with a unique mutation ID.
+
+LUNA CORE:
+
+1. rejects unauthenticated client requests,
+2. deduplicates previously processed mutation IDs,
+3. applies only the delta from the client mutation to the current canonical GameState,
+4. preserves canonical fields not represented by the current client,
+5. stores the new canonical GameState.
+
+This prevents client writes from erasing fields such as LQ, railway state, warehouses or other migrated systems.
+
+## Study -> LIFE QUEST
+
+The intended production flow is:
+
+```text
+AppDeploy study answer
+  -> Airtable mirror succeeds
+  -> browser queues an idempotent study event
+  -> LUNA CORE receives the event with the paired device token
+  -> GitHub-defined reward logic calculates LQ / XP / energy / bait / boss progress
+  -> canonical GameState is updated
+  -> LIFE QUEST PWA receives the updated state
+```
+
+AppDeploy no longer calculates or mutates the production LIFE QUEST GameState from study answers.
+
+Study event IDs are deduplicated in the Durable Object.
+
+## Authentication
+
+Gameplay sync and study-event delivery use a per-device pairing token.
+
+Only its SHA-256 verifier is stored in the LUNA CORE source. The raw token is supplied to the user's browser through a one-time pairing link and stored only in that origin's localStorage.
+
+Migration uses a separate one-time migration token verifier.
+
+## Safety invariants
+
+Never erase or devalue:
+
+- existing LIFE QUEST saves
+- LQ / G / XP
+- materials, fish, achievements, chapters
+- railway and warehouse state
+- prior study effort
+- historical progress
+
+Client fields that do not exist yet must not overwrite or delete canonical fields.
+
+No save reset is permitted for implementation convenience.
+
+## MAGI roadmap
+
+MAGI remains outside the production write path for now.
+
+Future rollout:
+
+1. observation only
+2. proposed changes
+3. independent three-perspective review
+4. tests + deterministic policy gate
+5. guarded low-risk autonomous merge/deploy
+
+Save migrations, economy changes, authentication, permissions and authority expansion remain protected.
