@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MIGRATION_VERSION, clientSaveFromGame, mergeClientMutation, applyStudyReward, settleRegionalEconomy, applyGameAction } from './quest-model.js';
+import { MIGRATION_VERSION, clientSaveFromGame, mergeClientMutation, applyStudyReward, settleRegionalEconomy, applyGameAction, sha256Text } from './quest-model.js';
 
 export class QuestStateStore extends DurableObject {
   async migrationStatus(){ return (await this.ctx.storage.get('migration_game_meta_v3'))??{status:'empty',version:MIGRATION_VERSION}; }
@@ -31,6 +31,52 @@ export class QuestStateStore extends DurableObject {
     return {active:Boolean(game),status:game?'active':'not-ready',source:migration?.sourceAppId??null,snapshotSha256:migration?.snapshotSha256??null,gameUpdatedAt:game?.updatedAt??migration?.gameUpdatedAt??null,migratedFieldCount:migration?.gameFieldCount??null,migrationVersion:migration?.version??MIGRATION_VERSION};
   }
   async clientBootstrap(){ const game=await this.settledGame(); return game?{save:clientSaveFromGame(game),gameUpdatedAt:game.updatedAt}:null; }
+
+  async verifyClientToken(token){
+    if(typeof token!=='string'||!token) return false;
+    const digest=await sha256Text(token);
+    const tokens=(await this.ctx.storage.get('quest_client_tokens_v1'))??[];
+    return tokens.some((entry)=>entry?.sha256===digest);
+  }
+
+  async issueClientPairingTicket(){
+    const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const codeBytes=new Uint8Array(10);
+    crypto.getRandomValues(codeBytes);
+    const code=Array.from(codeBytes,(value)=>alphabet[value%alphabet.length]).join('');
+    const tokenBytes=new Uint8Array(32);
+    crypto.getRandomValues(tokenBytes);
+    const deviceToken=Array.from(tokenBytes,(value)=>value.toString(16).padStart(2,'0')).join('');
+    const createdAt=Date.now();
+    const expiresAt=createdAt+10*60*1000;
+    await this.ctx.storage.put(`quest_pair_ticket:${code}`,{deviceToken,createdAt,expiresAt});
+    return {code,createdAt:new Date(createdAt).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
+  }
+
+  async redeemClientPairingTicket(rawCode){
+    const code=String(rawCode??'').trim().toUpperCase();
+    if(!/^[A-Z2-9]{10}$/.test(code)) throw new Error('invalid_pairing_code');
+    const key=`quest_pair_ticket:${code}`;
+    const ticket=await this.ctx.storage.get(key);
+    if(!ticket) throw new Error('pairing_code_not_found');
+    if(!Number.isFinite(ticket.expiresAt)||ticket.expiresAt<Date.now()){
+      await this.ctx.storage.delete(key);
+      throw new Error('pairing_code_expired');
+    }
+    await this.ctx.storage.delete(key);
+
+    const sha256=await sha256Text(ticket.deviceToken);
+    const current=(await this.ctx.storage.get('quest_client_tokens_v1'))??[];
+    const next=[
+      ...current.filter((entry)=>entry?.sha256!==sha256).slice(-19),
+      {sha256,createdAt:new Date().toISOString(),source:'pairing-ticket'}
+    ];
+    await this.ctx.storage.put('quest_client_tokens_v1',next);
+
+    const payload=await this.clientBootstrap();
+    if(!payload) throw new Error('state_not_ready');
+    return {token:ticket.deviceToken,...payload};
+  }
   async applyClientMutation(mutationId,before,after){
     if(typeof mutationId!=='string'||!mutationId) throw new Error('Missing mutation id');
     const key=`client_mutation:${mutationId}`,processed=await this.ctx.storage.get(key);
