@@ -6,6 +6,6 @@
   "scripts": {
     "dev": "npx wrangler@4 dev --test-scheduled",
     "deploy": "npx wrangler@4 deploy",
-    "check": "node --check src/index.js"
+    "check": "for f in src/*.js; do node --check \"$f\" || exit 1; done"
   }
 }
