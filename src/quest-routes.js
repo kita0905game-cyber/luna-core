@@ -6,11 +6,63 @@ const CLIENT_TOKEN_SHA256='0a5855c3306ad2afde78e17debf90b4d3dbd432725e776a8dc5c5
 
 const questStore=(env)=>env.QUEST_STATE.getByName(QUEST_OBJECT_NAME);
 const questJson=(data,init={})=>{const headers=new Headers(init.headers||{});headers.set('Access-Control-Allow-Origin','*');headers.set('Cache-Control','no-store');return Response.json(data,{...init,headers});};
+
+function browserPairingBridge(){
+  const html=`<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>LIFE QUEST 接続</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4efd9;background:#08110f}
+*{box-sizing:border-box}
+body{min-height:100dvh;margin:0;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 50% -10%,rgba(73,112,83,.3),transparent 45%),#08110f}
+main{width:min(100%,460px);padding:24px;border:1px solid rgba(225,194,116,.4);border-radius:22px;background:linear-gradient(145deg,rgba(22,52,44,.98),rgba(8,25,23,.98));box-shadow:0 18px 50px rgba(0,0,0,.34)}
+small{color:#9db6a7;font-weight:800;letter-spacing:.12em}
+h1{margin:12px 0 10px;color:#ffe7a2;font-size:24px}
+p{margin:0;color:#d6dfd9;line-height:1.65}
+</style>
+</head>
+<body>
+<main>
+<small>LUNA CORE</small>
+<h1>Safariへ接続中…</h1>
+<p id="status">LIFE QUESTの冒険記録をSafariへ引き継いでいます。</p>
+</main>
+<script>
+(() => {
+  const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const token = params.get('lqToken');
+  const status = document.getElementById('status');
+  if (!token) {
+    status.textContent = '接続情報がありません。接続済みのLIFE QUESTからもう一度お試しください。';
+    return;
+  }
+  const target = 'https://life-quest-88o.pages.dev/#lqToken=' + encodeURIComponent(token);
+  location.replace(target);
+})();
+</script>
+</body>
+</html>`;
+  return new Response(html,{
+    status:200,
+    headers:{
+      'Content-Type':'text/html; charset=utf-8',
+      'Cache-Control':'no-store',
+      'Referrer-Policy':'no-referrer',
+      'X-Content-Type-Options':'nosniff'
+    }
+  });
+}
+
 async function verify(request,header,expected,bearer=false){let token=request.headers.get(header)??'';if(bearer){if(!token.startsWith('Bearer '))return false;token=token.slice(7).trim();}return Boolean(token)&&(await sha256Text(token))===expected;}
 
 export async function handleQuestRequest(request,env){
   const url=new URL(request.url); if(!url.pathname.startsWith('/quest')) return null;
   if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, PUT, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, Authorization, X-Luna-Migration-Token','Access-Control-Max-Age':'86400'}});
+  if(url.pathname==='/quest/browser-pair'&&request.method==='GET') return browserPairingBridge();
   if(url.pathname==='/quest'){
     const state=await questStore(env).activeStateMeta();
     return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',status:state.active?'operational':'migration-pending',message:state.active?'LIFE QUEST is operational on LUNA CORE.':'LIFE QUEST game-state migration is pending.',time:new Date().toISOString()});
