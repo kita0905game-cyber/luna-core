@@ -121,6 +121,13 @@ a,button{display:flex;align-items:center;justify-content:center;min-height:50px;
 }
 
 async function verify(request,header,expected,bearer=false){let token=request.headers.get(header)??'';if(bearer){if(!token.startsWith('Bearer '))return false;token=token.slice(7).trim();}return Boolean(token)&&(await sha256Text(token))===expected;}
+function bearerToken(request){const value=request.headers.get('Authorization')??'';return value.startsWith('Bearer ')?value.slice(7).trim():'';}
+async function verifyQuestClient(request,env){
+  const token=bearerToken(request);
+  if(!token) return false;
+  if((await sha256Text(token))===CLIENT_TOKEN_SHA256) return true;
+  return questStore(env).verifyClientToken(token);
+}
 
 export async function handleQuestRequest(request,env){
   const url=new URL(request.url); if(!url.pathname.startsWith('/quest')) return null;
@@ -144,20 +151,40 @@ export async function handleQuestRequest(request,env){
       const migration=await store.activateMigratedGame(game,meta); return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',migration,time:new Date().toISOString()},{status:201});
     }catch(error){const migration=await store.recordMigrationError(error instanceof Error?error.message:'Unknown migration error');return questJson({ok:false,service:'LUNA CORE',module:'LIFE QUEST',migration,time:new Date().toISOString()},{status:400});}
   }
+  if(url.pathname==='/quest/client/pair/issue'&&request.method==='POST'){
+    if(!(await verifyQuestClient(request,env))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    try{
+      const ticket=await questStore(env).issueClientPairingTicket();
+      return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',ticket,time:new Date().toISOString()},{status:201});
+    }catch(error){
+      return questJson({ok:false,error:error instanceof Error?error.message:'pairing_ticket_failed'},{status:500});
+    }
+  }
+  if(url.pathname==='/quest/client/pair/redeem'&&request.method==='POST'){
+    try{
+      const body=await request.json();
+      const payload=await questStore(env).redeemClientPairingTicket(body?.code);
+      return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',...payload,time:new Date().toISOString()});
+    }catch(error){
+      const message=error instanceof Error?error.message:'pairing_redeem_failed';
+      const status=message==='state_not_ready'?503:400;
+      return questJson({ok:false,error:message},{status});
+    }
+  }
   if(url.pathname==='/quest/state'){
     const state=await questStore(env).activeStateMeta(); return questJson({ok:state.active,service:'LUNA CORE',module:'LIFE QUEST',state,time:new Date().toISOString()},{status:state.active?200:503});
   }
   if(url.pathname==='/quest/client/bootstrap'&&request.method==='GET'){
-    if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    if(!(await verifyQuestClient(request,env))) return questJson({ok:false,error:'unauthorized'},{status:401});
     const payload=await questStore(env).clientBootstrap(); return payload?questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',...payload,time:new Date().toISOString()}):questJson({ok:false,error:'state_not_ready'},{status:503});
   }
   if(url.pathname==='/quest/client/mutation'&&request.method==='PUT'){
-    if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    if(!(await verifyQuestClient(request,env))) return questJson({ok:false,error:'unauthorized'},{status:401});
     try{const body=await request.json(),payload=await questStore(env).applyClientMutation(body?.mutationId,body?.before,body?.after);return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',...payload,time:new Date().toISOString()});}
     catch(error){return questJson({ok:false,error:error instanceof Error?error.message:'invalid_mutation'},{status:400});}
   }
   if(url.pathname==='/quest/action'&&request.method==='POST'){
-    if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    if(!(await verifyQuestClient(request,env))) return questJson({ok:false,error:'unauthorized'},{status:401});
     try{
       const body=await request.json();
       const receipt=await questStore(env).applyGameAction(body?.actionId,{action:body?.action,automation:body?.automation});
@@ -167,7 +194,7 @@ export async function handleQuestRequest(request,env){
     }
   }
   if(url.pathname==='/quest/study/event'&&request.method==='POST'){
-    if(!(await verify(request,'Authorization',CLIENT_TOKEN_SHA256,true))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    if(!(await verifyQuestClient(request,env))) return questJson({ok:false,error:'unauthorized'},{status:401});
     try{
       const body=await request.json(); if(body?.source!=='airtable-mirrored-study'||typeof body?.eventId!=='string'||!body.eventId||typeof body?.category!=='string'||typeof body?.correct!=='boolean') throw new Error('Invalid study event');
       const receipt=await questStore(env).applyStudyEvent({eventId:body.eventId,category:body.category,correct:body.correct,masteryStatus:typeof body.masteryStatus==='string'?body.masteryStatus:'未判定',answeredAt:typeof body.answeredAt==='string'?body.answeredAt:new Date().toISOString()});
