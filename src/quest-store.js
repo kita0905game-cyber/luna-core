@@ -69,6 +69,20 @@ export class QuestStateStore extends DurableObject {
     return safeRun;
   }
   async latestMorningRun(){ return (await this.ctx.storage.get('morning_latest_run_v1'))??null; }
+  async ingestMorningWidget(payload,meta={}){
+    const value={
+      payload,
+      meta:{
+        source:meta.source??'external',
+        sourceStatus:meta.sourceStatus??null,
+        sourceUpdatedAt:meta.sourceUpdatedAt??null,
+        ingestedAt:new Date().toISOString()
+      }
+    };
+    await this.ctx.storage.put('morning_widget_payload_v1',value);
+    return {date:payload.date,generatedAt:payload.generated_at,...value.meta};
+  }
+  async morningWidget(){ return (await this.ctx.storage.get('morning_widget_payload_v1'))??null; }
   async morningStatus(){
     const latest=await this.latestMorningRun();
     const history=(await this.ctx.storage.get('morning_run_history_v1'))??[];
