@@ -2,6 +2,7 @@ import { QuestStateStore } from './quest-store.js';
 import { handleQuestRequest } from './quest-routes.js';
 import { handleMorningRequest } from './morning-routes.js';
 import { runScheduledMorning } from './morning-runner.js';
+import { runWeatherRefresh } from './weather-updater.js';
 export { QuestStateStore };
 
 export default {
@@ -17,6 +18,19 @@ export default {
       await runScheduledMorning(controller,env);
       return;
     }
+
+    if(controller.cron==='10,40 * * * *'){
+      const result=await runWeatherRefresh(env,{scheduledTime:controller.scheduledTime});
+      console.log(JSON.stringify({
+        event:'LUNA_WEATHER_REFRESH',
+        cron:controller.cron,
+        scheduledTime:controller.scheduledTime,
+        ...result
+      }));
+      if(result.status==='failed') throw new Error(result.error||'weather_refresh_failed');
+      return;
+    }
+
     console.log(JSON.stringify({event:'LUNA_CORE_SCHEDULED_UNKNOWN',cron:controller.cron,scheduledTime:controller.scheduledTime}));
   }
 };
