@@ -31,6 +31,18 @@ export default {
       return;
     }
 
+    if(controller.cron==='*/5 * * * *'){
+      const game=await env.QUEST_STATE.getByName('primary').settledGame();
+      console.log(JSON.stringify({
+        event:'LIFE_QUEST_WORLD_TICK',
+        cron:controller.cron,
+        scheduledTime:controller.scheduledTime,
+        status:game?'settled':'state_not_ready',
+        gameUpdatedAt:game?.updatedAt??null
+      }));
+      return;
+    }
+
     console.log(JSON.stringify({event:'LUNA_CORE_SCHEDULED_UNKNOWN',cron:controller.cron,scheduledTime:controller.scheduledTime}));
   }
 };
