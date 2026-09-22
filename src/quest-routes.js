@@ -14,7 +14,7 @@ function browserPairingBridge(){
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<title>LIFE QUEST 接続</title>
+<title>LIFE QUEST Safari接続</title>
 <style>
 :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4efd9;background:#08110f}
 *{box-sizing:border-box}
@@ -23,25 +23,88 @@ main{width:min(100%,460px);padding:24px;border:1px solid rgba(225,194,116,.4);bo
 small{color:#9db6a7;font-weight:800;letter-spacing:.12em}
 h1{margin:12px 0 10px;color:#ffe7a2;font-size:24px}
 p{margin:0;color:#d6dfd9;line-height:1.65}
+.guide{margin:18px 0;padding:14px;border-radius:14px;background:rgba(4,15,14,.55);color:#c9d8d0;font-size:13px;line-height:1.6}
+.actions{display:grid;gap:10px;margin-top:18px}
+a,button{display:flex;align-items:center;justify-content:center;min-height:50px;width:100%;border:1px solid rgba(225,194,116,.45);border-radius:12px;font:inherit;font-weight:900;text-decoration:none}
+.primary{color:#102019;background:linear-gradient(180deg,#ffe39a,#d8ad55)}
+.secondary{color:#d9e6de;background:rgba(18,42,36,.84)}
+.note{margin-top:14px;color:#7f9489;font-size:11px;line-height:1.55}
+.ok{margin-top:10px;color:#bfe3c7;font-size:12px}
+.error{color:#ffd6cf}
 </style>
 </head>
 <body>
 <main>
 <small>LUNA CORE</small>
-<h1>Safariへ接続中…</h1>
-<p id="status">LIFE QUESTの冒険記録をSafariへ引き継いでいます。</p>
+<h1>Safari接続ページ</h1>
+<p>このページに接続情報を保持しています。ここからLIFE QUESTの接続URLを開くか、Safariへ渡してください。</p>
+<div class="guide">
+<b>ChatGPT内ブラウザの場合</b><br>
+「共有メニューを開く」または「接続URLをコピー」を使ってSafariへ渡します。Safariで接続URLを開けば、そのブラウザだけに接続情報が保存されます。
+</div>
+<div id="error" class="guide error" hidden></div>
+<div id="actions" class="actions">
+<a id="open" class="primary" href="#" rel="noreferrer">LIFE QUEST接続URLを開く</a>
+<button id="share" class="secondary" type="button" hidden>共有メニューを開く</button>
+<button id="copy" class="secondary" type="button">接続URLをコピー</button>
+</div>
+<p id="result" class="ok" aria-live="polite"></p>
+<p class="note">接続URLにはLUNA COREの接続情報が含まれます。他人へ共有しないでください。接続情報はURLの # 以降に保持され、このページを取得するHTTPリクエストには含まれません。</p>
 </main>
 <script>
 (() => {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   const token = params.get('lqToken');
-  const status = document.getElementById('status');
+  const error = document.getElementById('error');
+  const actions = document.getElementById('actions');
+  const open = document.getElementById('open');
+  const copy = document.getElementById('copy');
+  const share = document.getElementById('share');
+  const result = document.getElementById('result');
   if (!token) {
-    status.textContent = '接続情報がありません。接続済みのLIFE QUESTからもう一度お試しください。';
+    actions.hidden = true;
+    error.hidden = false;
+    error.textContent = '接続情報がありません。接続済みのLIFE QUESTから、もう一度このページを開いてください。';
     return;
   }
   const target = 'https://life-quest-88o.pages.dev/#lqToken=' + encodeURIComponent(token);
-  location.replace(target);
+  open.href = target;
+
+  async function copyText(value) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+
+  copy.addEventListener('click', async () => {
+    try {
+      await copyText(target);
+      result.textContent = '接続URLをコピーしました。Safariのアドレス欄へ貼り付けて開いてください。';
+    } catch {
+      result.textContent = 'コピーできませんでした。共有メニューからSafariへ渡してください。';
+    }
+  });
+
+  if (navigator.share) {
+    share.hidden = false;
+    share.addEventListener('click', async () => {
+      try {
+        await navigator.share({ title: 'LIFE QUEST 接続', url: target });
+      } catch {
+        // User cancellation is harmless.
+      }
+    });
+  }
 })();
 </script>
 </body>
