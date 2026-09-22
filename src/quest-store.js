@@ -57,4 +57,35 @@ export class QuestStateStore extends DurableObject {
     const receipt={duplicate:false,actionId,message,reward,save:clientSaveFromGame(next),gameUpdatedAt:next.updatedAt,processedAt:new Date().toISOString()};
     await this.ctx.storage.put(key,receipt); return receipt;
   }
+
+  async recordMorningRun(run){
+    const safeRun={...run};
+    await this.ctx.storage.put('morning_latest_run_v1',safeRun);
+    const history=(await this.ctx.storage.get('morning_run_history_v1'))??[];
+    const meta={...safeRun};
+    delete meta.payload;
+    history.unshift(meta);
+    await this.ctx.storage.put('morning_run_history_v1',history.slice(0,20));
+    return safeRun;
+  }
+  async latestMorningRun(){ return (await this.ctx.storage.get('morning_latest_run_v1'))??null; }
+  async morningStatus(){
+    const latest=await this.latestMorningRun();
+    const history=(await this.ctx.storage.get('morning_run_history_v1'))??[];
+    return {
+      initialized:Boolean(latest),
+      latest:latest?{
+        runId:latest.runId,
+        status:latest.status,
+        trigger:latest.trigger,
+        date:latest.date,
+        startedAt:latest.startedAt,
+        finishedAt:latest.finishedAt,
+        aiUsed:Boolean(latest.aiUsed),
+        published:Boolean(latest.published),
+        error:latest.error??null
+      }:null,
+      recentRuns:history.slice(0,5)
+    };
+  }
 }
