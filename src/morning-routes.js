@@ -45,6 +45,16 @@ function normalizeWidgetPayload(body){
   return payload;
 }
 
+async function morningCurrentResponse(request,env){
+  if(!(await verifyHashedToken(request,'Authorization',MORNING_WIDGET_TOKEN_SHA256,true))){
+    return morningJson({ok:false,error:'unauthorized'},{status:401});
+  }
+  const widget=await env.QUEST_STATE.getByName('morning-v1').morningWidget();
+  return widget
+    ? morningJson({ok:true,service:'LUNA CORE',module:'LUNA MORNING',...widget,time:new Date().toISOString()})
+    : morningJson({ok:false,error:'widget_payload_not_ready'},{status:404});
+}
+
 export async function handleMorningRequest(request,env){
   const url=new URL(request.url);
   if(!url.pathname.startsWith('/morning')) return null;
@@ -84,14 +94,8 @@ export async function handleMorningRequest(request,env){
     }
   }
 
-  if(url.pathname==='/morning/widget'&&request.method==='GET'){
-    if(!(await verifyHashedToken(request,'Authorization',MORNING_WIDGET_TOKEN_SHA256,true))){
-      return morningJson({ok:false,error:'unauthorized'},{status:401});
-    }
-    const widget=await env.QUEST_STATE.getByName('morning-v1').morningWidget();
-    return widget
-      ? morningJson({ok:true,service:'LUNA CORE',module:'LUNA MORNING',...widget,time:new Date().toISOString()})
-      : morningJson({ok:false,error:'widget_payload_not_ready'},{status:404});
+  if((url.pathname==='/morning/widget'||url.pathname==='/morning/current')&&request.method==='GET'){
+    return morningCurrentResponse(request,env);
   }
 
   if(url.pathname==='/morning/run'&&request.method==='POST'){
