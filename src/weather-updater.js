@@ -1,6 +1,6 @@
 import { morningDateJst } from './morning-model.js';
 
-const AIRTABLE_BASE_ID='appT6Hykt7068qoEQ';
+const AIRTABLE_BASE_ID='appIJfqeiE1njGZBP';
 const AIRTABLE_TABLE_ID='tblqjklqB0zyJH4Tu';
 const AIRTABLE_RECORD_ID='recDpl0EjC5JfHwnN';
 
