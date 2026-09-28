@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { MIGRATION_VERSION, clientSaveFromGame, mergeClientMutation, applyStudyReward, settleRegionalEconomy, applyGameAction, sha256Text } from './quest-model.js';
+import { createEmptyHubState, projectHubEvent } from './hub-state.js';
 
 export class QuestStateStore extends DurableObject {
   async migrationStatus(){ return (await this.ctx.storage.get('migration_game_meta_v3'))??{status:'empty',version:MIGRATION_VERSION}; }
@@ -148,4 +149,63 @@ export class QuestStateStore extends DurableObject {
       recentRuns:history.slice(0,5)
     };
   }
+  async hubCurrent(){
+    return (await this.ctx.storage.get('hub_current_v1'))??createEmptyHubState();
+  }
+
+  async hubStatus(){
+    const state=await this.hubCurrent();
+    const events=(await this.ctx.storage.get('hub_event_history_v1'))??[];
+    return {
+      initialized:Number(state.revision||0)>0,
+      schemaVersion:state.schemaVersion,
+      revision:Number(state.revision||0),
+      mode:state.mode??'unknown',
+      updatedAt:state.updatedAt??null,
+      lastEvent:state.lastEvent??null,
+      recentEventCount:events.length
+    };
+  }
+
+  async recentHubEvents(limit=20){
+    const safeLimit=Math.max(1,Math.min(100,Number(limit)||20));
+    const events=(await this.ctx.storage.get('hub_event_history_v1'))??[];
+    return events.slice(0,safeLimit);
+  }
+
+  async applyHubEvent(event){
+    if(!event||typeof event.eventId!=='string'||!event.eventId) throw new Error('event_id_required');
+    const key=`hub_event:${event.eventId}`;
+    const processed=await this.ctx.storage.get(key);
+    if(processed) return {duplicate:true,...processed};
+
+    const current=await this.hubCurrent();
+    const processedAt=new Date().toISOString();
+    const next=projectHubEvent(current,event,{processedAt});
+    const receipt={
+      eventId:event.eventId,
+      type:event.type,
+      domain:event.domain,
+      revision:next.revision,
+      processedAt
+    };
+
+    await this.ctx.storage.put('hub_current_v1',next);
+    await this.ctx.storage.put(key,receipt);
+
+    const history=(await this.ctx.storage.get('hub_event_history_v1'))??[];
+    history.unshift({
+      eventId:event.eventId,
+      type:event.type,
+      domain:event.domain,
+      source:event.source,
+      occurredAt:event.occurredAt,
+      processedAt,
+      revision:next.revision
+    });
+    await this.ctx.storage.put('hub_event_history_v1',history.slice(0,100));
+
+    return {duplicate:false,...receipt};
+  }
+
 }
