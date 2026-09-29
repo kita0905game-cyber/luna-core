@@ -1,5 +1,6 @@
 import { normalizeLunaEvent, LUNA_EVENT_SCHEMA_VERSION } from './luna-event.js';
 import { HUB_STATE_SCHEMA_VERSION } from './hub-state.js';
+import { runtimeMetadata } from './runtime-meta.js';
 
 const HUB_OBJECT_NAME='hub-v1';
 
@@ -58,6 +59,7 @@ export async function handleHubRequest(request,env){
       eventSchema:LUNA_EVENT_SCHEMA_VERSION,
       stateSchema:HUB_STATE_SCHEMA_VERSION,
       protectedApiConfigured:Boolean(env.LUNA_HUB_TOKEN),
+      deployment:runtimeMetadata(env),
       time:new Date().toISOString()
     });
   }
@@ -71,7 +73,7 @@ export async function handleHubRequest(request,env){
 
   if(url.pathname==='/hub/status'&&request.method==='GET'){
     const status=await hubStore(env).hubStatus();
-    return hubJson({ok:true,service:'LUNA CORE',module:'LUNA HUB',status,time:new Date().toISOString()});
+    return hubJson({ok:true,service:'LUNA CORE',module:'LUNA HUB',status,deployment:runtimeMetadata(env),time:new Date().toISOString()});
   }
 
   if(url.pathname==='/hub/events'&&request.method==='GET'){
