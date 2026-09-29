@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { MIGRATION_VERSION, clientSaveFromGame, mergeClientMutation, applyStudyReward, settleRegionalEconomy, applyGameAction, sha256Text } from './quest-model.js';
-import { createEmptyHubState, projectHubEvent } from './hub-state.js';
+import { createEmptyHubState, normalizeHubState, projectHubEvent } from './hub-state.js';
+import { deriveHubState } from './hub-rules.js';
 
 export class QuestStateStore extends DurableObject {
   async migrationStatus(){ return (await this.ctx.storage.get('migration_game_meta_v3'))??{status:'empty',version:MIGRATION_VERSION}; }
@@ -149,8 +150,12 @@ export class QuestStateStore extends DurableObject {
       recentRuns:history.slice(0,5)
     };
   }
+  async hubStoredState(){
+    return normalizeHubState((await this.ctx.storage.get('hub_current_v1'))??createEmptyHubState());
+  }
+
   async hubCurrent(){
-    return (await this.ctx.storage.get('hub_current_v1'))??createEmptyHubState();
+    return deriveHubState(await this.hubStoredState());
   }
 
   async hubStatus(){
@@ -179,7 +184,7 @@ export class QuestStateStore extends DurableObject {
     const processed=await this.ctx.storage.get(key);
     if(processed) return {duplicate:true,...processed};
 
-    const current=await this.hubCurrent();
+    const current=await this.hubStoredState();
     const processedAt=new Date().toISOString();
     const next=projectHubEvent(current,event,{processedAt});
     const receipt={
