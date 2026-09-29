@@ -29,7 +29,7 @@ export default {
         scheduledTime:controller.scheduledTime,
         ...result
       }));
-      if(result.status==='failed') throw new Error(result.error||'weather_refresh_failed');
+      if(result.status==='failed'||result.hubSynced===false) throw new Error(result.hubError||result.error||'weather_hub_refresh_failed');
       return;
     }
 

@@ -1,12 +1,15 @@
 import { morningDateJst } from './morning-model.js';
+import { normalizeLunaEvent } from './luna-event.js';
 
 const AIRTABLE_BASE_ID='appIJfqeiE1njGZBP';
 const AIRTABLE_TABLE_ID='tblqjklqB0zyJH4Tu';
 const AIRTABLE_RECORD_ID='recDpl0EjC5JfHwnN';
+const HUB_OBJECT_NAME='hub-v1';
 
 const DEFAULT_LAT=34.6937;
 const DEFAULT_LON=135.5023;
 const DEFAULT_TIMEZONE='Asia/Tokyo';
+const WEATHER_TTL_MS=45*60*1000;
 
 function numberOr(value,fallback){
   const parsed=Number(value);
@@ -76,15 +79,54 @@ async function patchAirtablePayload(env,payload){
   return response.json();
 }
 
+function weatherConfig(env){
+  return {
+    latitude:numberOr(env.WEATHER_LAT,DEFAULT_LAT),
+    longitude:numberOr(env.WEATHER_LON,DEFAULT_LON),
+    timeZone:env.WEATHER_TIMEZONE||DEFAULT_TIMEZONE,
+    label:typeof env.WEATHER_LABEL==='string'&&env.WEATHER_LABEL.trim()
+      ?env.WEATHER_LABEL.trim()
+      :'大阪市'
+  };
+}
+
+export function buildWeatherHubPatch(weather,{observedAt=new Date().toISOString()}={}){
+  const expiry=new Date(Date.parse(observedAt)+WEATHER_TTL_MS).toISOString();
+  return {
+    location:{
+      label:weather.location.label,
+      latitude:weather.location.latitude,
+      longitude:weather.location.longitude,
+      timeZone:weather.location.timeZone
+    },
+    current:{
+      observedAt,
+      temperatureC:weather.current.temperatureC,
+      feelsLikeC:weather.current.feelsLikeC,
+      conditionCode:weather.current.conditionCode,
+      icon:weather.current.icon,
+      precipitationMm:weather.current.precipitationMm
+    },
+    today:{
+      lowC:weather.today.lowC,
+      highC:weather.today.highC,
+      rainChanceAmPct:weather.today.rainChanceAmPct,
+      rainChancePmPct:weather.today.rainChancePmPct
+    },
+    freshness:{
+      status:'fresh',
+      expiresAt:expiry
+    }
+  };
+}
+
 async function fetchWeather(env){
-  const latitude=numberOr(env.WEATHER_LAT,DEFAULT_LAT);
-  const longitude=numberOr(env.WEATHER_LON,DEFAULT_LON);
-  const timezone=env.WEATHER_TIMEZONE||DEFAULT_TIMEZONE;
+  const config=weatherConfig(env);
 
   const url=new URL('https://api.open-meteo.com/v1/forecast');
-  url.searchParams.set('latitude',String(latitude));
-  url.searchParams.set('longitude',String(longitude));
-  url.searchParams.set('timezone',timezone);
+  url.searchParams.set('latitude',String(config.latitude));
+  url.searchParams.set('longitude',String(config.longitude));
+  url.searchParams.set('timezone',config.timeZone);
   url.searchParams.set('forecast_days','1');
   url.searchParams.set('current','temperature_2m,apparent_temperature,weather_code,precipitation');
   url.searchParams.set('hourly','precipitation_probability');
@@ -98,14 +140,82 @@ async function fetchWeather(env){
   const body=await response.json();
   const times=body?.hourly?.time??[];
   const probs=body?.hourly?.precipitation_probability??[];
+  const code=roundWeather(body?.current?.weather_code??body?.daily?.weather_code?.[0]);
+  const icon=weatherIcon(code);
 
-  return {
-    icon:weatherIcon(body?.current?.weather_code??body?.daily?.weather_code?.[0]),
+  const legacy={
+    icon,
     low:roundWeather(body?.daily?.temperature_2m_min?.[0]),
     high:roundWeather(body?.daily?.temperature_2m_max?.[0]),
     rain_am:maxProbability(times,probs,0,12),
     rain_pm:maxProbability(times,probs,12,24)
   };
+
+  return {
+    legacy,
+    hub:{
+      location:config,
+      current:{
+        temperatureC:roundWeather(body?.current?.temperature_2m),
+        feelsLikeC:roundWeather(body?.current?.apparent_temperature),
+        conditionCode:code,
+        icon,
+        precipitationMm:Number.isFinite(Number(body?.current?.precipitation))
+          ?Number(body.current.precipitation)
+          :null
+      },
+      today:{
+        lowC:legacy.low,
+        highC:legacy.high,
+        rainChanceAmPct:legacy.rain_am,
+        rainChancePmPct:legacy.rain_pm
+      }
+    }
+  };
+}
+
+async function publishWeatherHub(env,weather,scheduledTime){
+  const occurredAt=new Date(scheduledTime).toISOString();
+  const event=normalizeLunaEvent({
+    eventId:'weather-refresh-'+String(scheduledTime),
+    type:'weather.current_refreshed',
+    source:'luna-core-weather',
+    occurredAt,
+    payload:{statePatch:buildWeatherHubPatch(weather,{observedAt:occurredAt})}
+  });
+  return env.QUEST_STATE.getByName(HUB_OBJECT_NAME).applyHubEvent(event);
+}
+
+async function updateLegacyMorning(env,today,weather){
+  try{
+    const record=await fetchAirtableRecord(env);
+    const raw=record?.fields?.Payload;
+    if(typeof raw!=='string'||!raw) return {status:'skipped_payload_missing'};
+
+    let payload;
+    try{
+      payload=JSON.parse(raw);
+    }catch{
+      return {status:'skipped_payload_invalid_json'};
+    }
+
+    if(payload?.date!==today){
+      return {
+        status:'skipped_stale_morning',
+        expectedDate:today,
+        payloadDate:payload?.date??null
+      };
+    }
+
+    payload.weather=weather;
+    await patchAirtablePayload(env,payload);
+    return {status:'updated'};
+  }catch(error){
+    return {
+      status:'failed',
+      error:error instanceof Error?error.message:'unknown_airtable_weather_error'
+    };
+  }
 }
 
 export async function runWeatherRefresh(env,{scheduledTime=Date.now()}={}){
@@ -113,44 +223,37 @@ export async function runWeatherRefresh(env,{scheduledTime=Date.now()}={}){
   const today=morningDateJst(scheduledTime);
 
   try{
-    const record=await fetchAirtableRecord(env);
-    const raw=record?.fields?.Payload;
-    if(typeof raw!=='string'||!raw){
-      return {status:'skipped_payload_missing',startedAt,finishedAt:new Date().toISOString()};
-    }
-
-    let payload;
-    try{
-      payload=JSON.parse(raw);
-    }catch{
-      return {status:'skipped_payload_invalid_json',startedAt,finishedAt:new Date().toISOString()};
-    }
-
-    if(payload?.date!==today){
-      return {
-        status:'skipped_stale_morning',
-        expectedDate:today,
-        payloadDate:payload?.date??null,
-        startedAt,
-        finishedAt:new Date().toISOString()
-      };
-    }
-
     const weather=await fetchWeather(env);
-    payload.weather=weather;
-    await patchAirtablePayload(env,payload);
+
+    let hubSynced=false;
+    let hubReceipt=null;
+    let hubError=null;
+    try{
+      hubReceipt=await publishWeatherHub(env,weather.hub,scheduledTime);
+      hubSynced=true;
+    }catch(error){
+      hubError=error instanceof Error?error.message:'unknown_hub_weather_error';
+    }
+
+    const legacy=await updateLegacyMorning(env,today,weather.legacy);
+    const finishedAt=new Date().toISOString();
 
     return {
-      status:'updated',
+      status:hubSynced?(legacy.status==='updated'?'updated':'updated_hub_only'):(legacy.status==='updated'?'updated_legacy_only':'failed'),
       date:today,
-      weather,
+      weather:weather.legacy,
+      hubSynced,
+      hubReceipt,
+      hubError,
+      legacy,
       startedAt,
-      finishedAt:new Date().toISOString()
+      finishedAt
     };
   }catch(error){
     return {
       status:'failed',
       error:error instanceof Error?error.message:'unknown_weather_error',
+      hubSynced:false,
       startedAt,
       finishedAt:new Date().toISOString()
     };
