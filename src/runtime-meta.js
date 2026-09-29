@@ -4,14 +4,14 @@ function textOrNull(value){
   return typeof value==='string'&&value.trim()?value.trim():null;
 }
 
-export function runtimeMetadata(env={}){
+export function runtimeMetadata(env={},buildMeta=BUILD_META){
   const version=env?.CF_VERSION_METADATA??null;
   return {
     git:{
-      commitSha:textOrNull(BUILD_META.commitSha),
-      branch:textOrNull(BUILD_META.branch),
-      buildUuid:textOrNull(BUILD_META.buildUuid),
-      source:BUILD_META.source??'unknown'
+      commitSha:textOrNull(buildMeta.commitSha),
+      branch:textOrNull(buildMeta.branch),
+      buildUuid:textOrNull(buildMeta.buildUuid),
+      source:buildMeta.source??'unknown'
     },
     cloudflare:{
       versionId:textOrNull(version?.id),
