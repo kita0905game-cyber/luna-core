@@ -8,7 +8,7 @@ const PLAN_LABELS={
   recovery:'回復日｜軽いストレッチ'
 };
 
-const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute','study','diary']);
+const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute','study','diary','news']);
 
 function clone(value){
   return value===undefined?undefined:structuredClone(value);
@@ -261,10 +261,28 @@ function deriveDiary(domain,today,nowIso){
   return next;
 }
 
+function deriveNews(domain,nowIso){
+  const next=clone(domain??{});
+  const items=Array.isArray(next.items)
+    ?next.items
+      .filter((item)=>item&&typeof item.title==='string'&&typeof item.url==='string')
+      .sort((a,b)=>Date.parse(b.publishedAt??0)-Date.parse(a.publishedAt??0))
+      .slice(0,6)
+    :[];
+  next.items=items;
+  next.freshness=derivedFreshness(next,nowIso);
+  next.derived={
+    ...(next.derived??{}),
+    available:next.status==='ready'&&items.length>0&&next.freshness.status!=='expired',
+    itemCount:items.length
+  };
+  return next;
+}
+
 function deriveOtherDomains(domains,nowIso){
   const next={...domains};
   for(const [name,domain] of Object.entries(next)){
-    if(['health','care','workout','commute','study','diary'].includes(name)) continue;
+    if(['health','care','workout','commute','study','diary','news'].includes(name)) continue;
     next[name]={
       ...domain,
       freshness:derivedFreshness(domain,nowIso)
@@ -287,6 +305,8 @@ function buildHome(domains){
   const study=domains.study?.bookkeeping?.derived??{};
   const diary=domains.diary?.derived??{};
   const diaryYesterday=domains.diary?.yesterday??null;
+  const news=domains.news?.derived??{};
+  const newsItems=Array.isArray(domains.news?.items)?domains.news.items:[];
   const pending=Array.isArray(care.pending)?care.pending:[];
 
   const cards=[
@@ -365,6 +385,26 @@ function buildHome(domains){
         summaryStatus:diaryYesterday?.summaryStatus??null,
         hasSummary:Boolean(diary.yesterdayHasSummary)
       }
+    },
+    {
+      id:'news',
+      domain:'news',
+      variant:'feed',
+      priority:30,
+      visible:true,
+      state:news.available?'ready':'unavailable',
+      title:'ニュース',
+      subtitle:news.available
+        ?String(domains.news?.sourceName??'ニュース')+'・'+Number(news.itemCount??0)+'件'
+        :'最新ニュースを取得できませんでした。',
+      actionId:'news.openSource',
+      reasonCode:news.available?'news_ready':'news_unavailable',
+      data:{
+        sourceName:domains.news?.sourceName??'',
+        sourceUrl:domains.news?.sourceUrl??'',
+        updatedAt:domains.news?.updatedAt??'',
+        items:newsItems
+      }
     }
   ].sort((a,b)=>b.priority-a.priority);
 
@@ -374,7 +414,8 @@ function buildHome(domains){
     {id:'care.recordNails',enabled:pending.includes('nails'),label:'爪切りを記録',target:'care'},
     {id:'workout.open',enabled:true,label:'筋トレを開く',target:'workout'},
     {id:'study.openBookkeeping',enabled:true,label:'簿記を開く',target:'study'},
-    {id:'diary.write',enabled:true,label:'日記を書く',target:'diary'}
+    {id:'diary.write',enabled:true,label:'日記を書く',target:'diary'},
+    {id:'news.openSource',enabled:Boolean(news.available),label:'ニュースを開く',target:'news'}
   ];
 
   return {
@@ -419,6 +460,7 @@ export function deriveHubState(current,{now=new Date()}={}){
   next.domains.commute=deriveCommute(next.domains.commute,nowDate);
   next.domains.study=deriveStudy(next.domains.study,today,nowIso);
   next.domains.diary=deriveDiary(next.domains.diary,today,nowIso);
+  next.domains.news=deriveNews(next.domains.news,nowIso);
   next.domains=deriveOtherDomains(next.domains,nowIso);
   next.home=buildHome(next.domains);
   next.capabilities=buildCapabilities(next.domains);
