@@ -181,3 +181,56 @@ test('study projection exposes HOME-ready bookkeeping card and recommendation',(
   assert.equal(projected.home.actions.find((action)=>action.id==='study.openBookkeeping').enabled,true);
   assert.equal(projected.capabilities.study.status,'ready');
 });
+
+
+test('diary projection resets today written state when snapshot date is stale',()=>{
+  const state=createEmptyHubState();
+  state.domains.diary={
+    ...state.domains.diary,
+    status:'ready',
+    snapshotDate:'2026-09-28',
+    today:{date:'2026-09-28',written:true,lastEditedAt:'2026-09-28T12:00:00.000Z'},
+    yesterday:{date:'2026-09-27',preview:'前日の記録',summary:null,tomorrowAction:'',mood:3,summaryStatus:'未要約',lastEditedAt:'2026-09-27T12:00:00.000Z'}
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
+  assert.equal(projected.domains.diary.derived.todayWritten,false);
+  assert.equal(projected.domains.diary.today.derived.written,false);
+  assert.equal(projected.domains.diary.yesterday,null);
+});
+
+test('diary projection exposes yesterday preview and HOME action without full diary history',()=>{
+  const state=createEmptyHubState();
+  state.domains.diary={
+    ...state.domains.diary,
+    status:'ready',
+    snapshotDate:'2026-09-29',
+    today:{date:'2026-09-29',written:true,lastEditedAt:'2026-09-29T02:30:00.000Z',summaryStatus:'未要約'},
+    yesterday:{
+      date:'2026-09-28',
+      preview:'昨日は簿記とアプリ開発を進めた。',
+      summary:null,
+      tomorrowAction:'帳簿記入を続ける',
+      mood:4,
+      summaryStatus:'未要約',
+      lastEditedAt:'2026-09-28T13:00:00.000Z'
+    },
+    latestEditedAt:'2026-09-29T02:30:00.000Z'
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
+  const diary=projected.domains.diary.derived;
+  const card=projected.home.cards.find((item)=>item.id==='diary');
+
+  assert.equal(diary.todayWritten,true);
+  assert.equal(diary.yesterdayAvailable,true);
+  assert.equal(diary.yesterdayDisplayText,'昨日は簿記とアプリ開発を進めた。');
+  assert.equal(diary.yesterdayHasSummary,false);
+  assert.equal(card.state,'done');
+  assert.equal(card.subtitle,'昨日は簿記とアプリ開発を進めた。');
+  assert.equal(card.data.tomorrowAction,'帳簿記入を続ける');
+  assert.equal(card.data.hasSummary,false);
+  assert.equal(projected.home.actions.find((action)=>action.id==='diary.write').enabled,true);
+  assert.equal(projected.capabilities.diary.status,'ready');
+  assert.equal(projected.domains.diary.text,undefined);
+});
