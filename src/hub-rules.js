@@ -1,4 +1,5 @@
 import { HUB_TIME_ZONE, normalizeHubState } from './hub-state.js';
+import { deriveCommuteSchedule } from './commute-model.js';
 
 const PLAN_LABELS={
   push:'PUSH｜胸・肩・腕',
@@ -7,7 +8,7 @@ const PLAN_LABELS={
   recovery:'回復日｜軽いストレッチ'
 };
 
-const INTEGRATED_DOMAINS=new Set(['health','care','workout']);
+const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute']);
 
 function clone(value){
   return value===undefined?undefined:structuredClone(value);
@@ -193,10 +194,27 @@ function deriveWorkout(domain,today,nowIso){
   };
 }
 
+function deriveCommute(domain,now){
+  const next=clone(domain??{});
+  const schedule=deriveCommuteSchedule(now);
+  return {
+    ...next,
+    status:'ready',
+    source:next.source??'luna-core-static-schedule',
+    freshness:derivedFreshness(next,now.toISOString()),
+    route:schedule.route,
+    schedule:schedule.schedule,
+    derived:{
+      ...(next.derived??{}),
+      ...schedule.derived
+    }
+  };
+}
+
 function deriveOtherDomains(domains,nowIso){
   const next={...domains};
   for(const [name,domain] of Object.entries(next)){
-    if(['health','care','workout'].includes(name)) continue;
+    if(['health','care','workout','commute'].includes(name)) continue;
     next[name]={
       ...domain,
       freshness:derivedFreshness(domain,nowIso)
@@ -304,6 +322,7 @@ export function deriveHubState(current,{now=new Date()}={}){
   next.domains.health=deriveHealth(next.domains.health,today,nowIso);
   next.domains.care=deriveCare(next.domains.care,today,nowIso);
   next.domains.workout=deriveWorkout(next.domains.workout,today,nowIso);
+  next.domains.commute=deriveCommute(next.domains.commute,nowDate);
   next.domains=deriveOtherDomains(next.domains,nowIso);
   next.home=buildHome(next.domains);
   next.capabilities=buildCapabilities(next.domains);
