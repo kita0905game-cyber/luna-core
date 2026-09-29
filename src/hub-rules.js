@@ -8,7 +8,7 @@ const PLAN_LABELS={
   recovery:'回復日｜軽いストレッチ'
 };
 
-const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute','study','diary','news']);
+const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute','study','diary','news','presence']);
 
 function clone(value){
   return value===undefined?undefined:structuredClone(value);
@@ -279,10 +279,26 @@ function deriveNews(domain,nowIso){
   return next;
 }
 
+function derivePresence(domain,nowIso){
+  const next=clone(domain??{});
+  const freshness=derivedFreshness(next,nowIso);
+  const rawMode=['returning_home','home'].includes(next.mode)?next.mode:'unknown';
+  const effectiveMode=freshness.status==='expired'?'unknown':rawMode;
+  next.freshness=freshness;
+  next.derived={
+    ...(next.derived??{}),
+    effectiveMode,
+    returningHome:effectiveMode==='returning_home',
+    atHome:effectiveMode==='home',
+    known:effectiveMode!=='unknown'
+  };
+  return next;
+}
+
 function deriveOtherDomains(domains,nowIso){
   const next={...domains};
   for(const [name,domain] of Object.entries(next)){
-    if(['health','care','workout','commute','study','diary','news'].includes(name)) continue;
+    if(['health','care','workout','commute','study','diary','news','presence'].includes(name)) continue;
     next[name]={
       ...domain,
       freshness:derivedFreshness(domain,nowIso)
@@ -461,6 +477,7 @@ export function deriveHubState(current,{now=new Date()}={}){
   next.domains.study=deriveStudy(next.domains.study,today,nowIso);
   next.domains.diary=deriveDiary(next.domains.diary,today,nowIso);
   next.domains.news=deriveNews(next.domains.news,nowIso);
+  next.domains.presence=derivePresence(next.domains.presence,nowIso);
   next.domains=deriveOtherDomains(next.domains,nowIso);
   next.home=buildHome(next.domains);
   next.capabilities=buildCapabilities(next.domains);
