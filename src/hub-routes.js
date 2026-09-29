@@ -54,7 +54,7 @@ export async function handleHubRequest(request,env){
       ok:true,
       service:'LUNA CORE',
       module:'LUNA HUB',
-      phase:'foundation',
+      phase:'hub-state-v2',
       eventSchema:LUNA_EVENT_SCHEMA_VERSION,
       stateSchema:HUB_STATE_SCHEMA_VERSION,
       protectedApiConfigured:Boolean(env.LUNA_HUB_TOKEN),
