@@ -151,7 +151,13 @@ export class QuestStateStore extends DurableObject {
     };
   }
   async hubStoredState(){
-    return normalizeHubState((await this.ctx.storage.get('hub_current_v1'))??createEmptyHubState());
+    const currentV2=await this.ctx.storage.get('hub_current_v2');
+    if(currentV2) return normalizeHubState(currentV2);
+
+    const legacy=await this.ctx.storage.get('hub_current_v1');
+    const migrated=normalizeHubState(legacy??createEmptyHubState());
+    if(legacy) await this.ctx.storage.put('hub_current_v2',migrated);
+    return migrated;
   }
 
   async hubCurrent(){
@@ -162,13 +168,17 @@ export class QuestStateStore extends DurableObject {
     const state=await this.hubCurrent();
     const events=(await this.ctx.storage.get('hub_event_history_v1'))??[];
     return {
-      initialized:Number(state.revision||0)>0,
+      initialized:Number(state.meta?.revision||0)>0,
       schemaVersion:state.schemaVersion,
-      revision:Number(state.revision||0),
-      mode:state.mode??'unknown',
-      updatedAt:state.updatedAt??null,
+      revision:Number(state.meta?.revision||0),
+      mode:state.mode?.current??'unknown',
+      updatedAt:state.meta?.storedUpdatedAt??null,
+      generatedAt:state.meta?.generatedAt??null,
+      localDate:state.meta?.localDate??null,
       lastEvent:state.lastEvent??null,
-      recentEventCount:events.length
+      recentEventCount:events.length,
+      storageKey:'hub_current_v2',
+      legacyStoragePreserved:true
     };
   }
 
@@ -191,11 +201,11 @@ export class QuestStateStore extends DurableObject {
       eventId:event.eventId,
       type:event.type,
       domain:event.domain,
-      revision:next.revision,
+      revision:next.meta.revision,
       processedAt
     };
 
-    await this.ctx.storage.put('hub_current_v1',next);
+    await this.ctx.storage.put('hub_current_v2',next);
     await this.ctx.storage.put(key,receipt);
 
     const history=(await this.ctx.storage.get('hub_event_history_v1'))??[];
@@ -206,7 +216,7 @@ export class QuestStateStore extends DurableObject {
       source:event.source,
       occurredAt:event.occurredAt,
       processedAt,
-      revision:next.revision
+      revision:next.meta.revision
     });
     await this.ctx.storage.put('hub_event_history_v1',history.slice(0,100));
 
