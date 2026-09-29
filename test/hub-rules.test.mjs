@@ -297,3 +297,50 @@ test('expired news remains visible as unavailable instead of pretending it is cu
   assert.equal(card.state,'unavailable');
   assert.equal(projected.home.actions.find((action)=>action.id==='news.openSource').enabled,false);
 });
+
+
+test('presence projection exposes returning-home state without forcing global mode',()=>{
+  const state=createEmptyHubState();
+  state.domains.presence={
+    ...state.domains.presence,
+    status:'ready',
+    mode:'returning_home',
+    lastEvent:'left_work',
+    updatedAt:'2026-09-29T09:00:00.000Z',
+    freshness:{
+      status:'fresh',
+      updatedAt:'2026-09-29T09:00:00.000Z',
+      expiresAt:'2026-09-29T17:00:00.000Z'
+    }
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T10:00:00.000Z'});
+  assert.equal(projected.domains.presence.derived.effectiveMode,'returning_home');
+  assert.equal(projected.domains.presence.derived.returningHome,true);
+  assert.equal(projected.domains.presence.derived.atHome,false);
+  assert.equal(projected.domains.presence.derived.known,true);
+  assert.equal(projected.mode.current,'unknown');
+  assert.equal(projected.capabilities.presence.status,'ready');
+});
+
+test('expired returning-home presence becomes unknown instead of staying stuck',()=>{
+  const state=createEmptyHubState();
+  state.domains.presence={
+    ...state.domains.presence,
+    status:'ready',
+    mode:'returning_home',
+    lastEvent:'left_work',
+    updatedAt:'2026-09-29T09:00:00.000Z',
+    freshness:{
+      status:'fresh',
+      updatedAt:'2026-09-29T09:00:00.000Z',
+      expiresAt:'2026-09-29T17:00:00.000Z'
+    }
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T18:00:00.000Z'});
+  assert.equal(projected.domains.presence.freshness.status,'expired');
+  assert.equal(projected.domains.presence.derived.effectiveMode,'unknown');
+  assert.equal(projected.domains.presence.derived.returningHome,false);
+  assert.equal(projected.domains.presence.derived.known,false);
+});
