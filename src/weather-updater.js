@@ -6,8 +6,8 @@ const AIRTABLE_TABLE_ID='tblqjklqB0zyJH4Tu';
 const AIRTABLE_RECORD_ID='recDpl0EjC5JfHwnN';
 const HUB_OBJECT_NAME='hub-v1';
 
-const DEFAULT_LAT=34.6937;
-const DEFAULT_LON=135.5023;
+const DEFAULT_LAT=34.621;
+const DEFAULT_LON=135.555;
 const DEFAULT_TIMEZONE='Asia/Tokyo';
 const WEATHER_TTL_MS=45*60*1000;
 
@@ -31,6 +31,18 @@ function weatherIcon(code){
   if([71,73,75,77,85,86].includes(value)) return '🌨️';
   if([95,96,99].includes(value)) return '⛈️';
   return '☀️';
+}
+
+function weatherDisplayKind(code,isDay){
+  const value=Number(code);
+  if(value===0) return Number(isDay)===0?'night':'sun';
+  if(value===1||value===2) return 'partly';
+  if(value===3) return 'cloud';
+  if(value===45||value===48) return 'fog';
+  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(value)) return 'rain';
+  if([71,73,75,77,85,86].includes(value)) return 'snow';
+  if([95,96,99].includes(value)) return 'thunder';
+  return 'unknown';
 }
 
 function maxProbability(times,values,startHour,endHour){
@@ -86,7 +98,7 @@ function weatherConfig(env){
     timeZone:env.WEATHER_TIMEZONE||DEFAULT_TIMEZONE,
     label:typeof env.WEATHER_LABEL==='string'&&env.WEATHER_LABEL.trim()
       ?env.WEATHER_LABEL.trim()
-      :'大阪市'
+      :'大阪市平野区'
   };
 }
 
@@ -105,6 +117,7 @@ export function buildWeatherHubPatch(weather,{observedAt=new Date().toISOString(
       feelsLikeC:weather.current.feelsLikeC,
       conditionCode:weather.current.conditionCode,
       icon:weather.current.icon,
+      displayKind:weather.current.displayKind??null,
       precipitationMm:weather.current.precipitationMm
     },
     today:{
@@ -128,7 +141,7 @@ async function fetchWeather(env){
   url.searchParams.set('longitude',String(config.longitude));
   url.searchParams.set('timezone',config.timeZone);
   url.searchParams.set('forecast_days','1');
-  url.searchParams.set('current','temperature_2m,apparent_temperature,weather_code,precipitation');
+  url.searchParams.set('current','temperature_2m,apparent_temperature,weather_code,precipitation,is_day');
   url.searchParams.set('hourly','precipitation_probability');
   url.searchParams.set('daily','weather_code,temperature_2m_max,temperature_2m_min');
 
@@ -147,8 +160,8 @@ async function fetchWeather(env){
     icon,
     low:roundWeather(body?.daily?.temperature_2m_min?.[0]),
     high:roundWeather(body?.daily?.temperature_2m_max?.[0]),
-    rain_am:maxProbability(times,probs,0,12),
-    rain_pm:maxProbability(times,probs,12,24)
+    rain_am:maxProbability(times,probs,6,12),
+    rain_pm:maxProbability(times,probs,16,23)
   };
 
   return {
@@ -160,6 +173,7 @@ async function fetchWeather(env){
         feelsLikeC:roundWeather(body?.current?.apparent_temperature),
         conditionCode:code,
         icon,
+        displayKind:weatherDisplayKind(code,body?.current?.is_day),
         precipitationMm:Number.isFinite(Number(body?.current?.precipitation))
           ?Number(body.current.precipitation)
           :null
