@@ -8,7 +8,7 @@ const PLAN_LABELS={
   recovery:'回復日｜軽いストレッチ'
 };
 
-const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute']);
+const INTEGRATED_DOMAINS=new Set(['health','care','workout','commute','study']);
 
 function clone(value){
   return value===undefined?undefined:structuredClone(value);
@@ -211,10 +211,32 @@ function deriveCommute(domain,now){
   };
 }
 
+function deriveStudy(domain,today,nowIso){
+  const next=clone(domain??{});
+  const bookkeeping={...(next.bookkeeping??{})};
+  const sameDay=bookkeeping.snapshotDate===today;
+  const todayCount=sameDay?Number(bookkeeping.todayCount??0):0;
+  const todayCorrect=sameDay?Number(bookkeeping.todayCorrect??0):0;
+  const weakness=Array.isArray(bookkeeping.weakness)?bookkeeping.weakness.slice(0,2):[];
+  next.freshness=derivedFreshness(next,nowIso);
+  next.bookkeeping={
+    ...bookkeeping,
+    derived:{
+      ...(bookkeeping.derived??{}),
+      todayCount,
+      todayCorrect,
+      studiedToday:todayCount>0,
+      recommendedTopic:bookkeeping.recommendedTopic??weakness[0]?.category??bookkeeping.latestCategory??'帳簿記入',
+      weakness
+    }
+  };
+  return next;
+}
+
 function deriveOtherDomains(domains,nowIso){
   const next={...domains};
   for(const [name,domain] of Object.entries(next)){
-    if(['health','care','workout','commute'].includes(name)) continue;
+    if(['health','care','workout','commute','study'].includes(name)) continue;
     next[name]={
       ...domain,
       freshness:derivedFreshness(domain,nowIso)
@@ -234,6 +256,7 @@ function buildHome(domains){
   const morning=domains.health?.morning?.derived??{};
   const care=domains.care?.derived??{};
   const workout=domains.workout?.derived??{};
+  const study=domains.study?.bookkeeping?.derived??{};
   const pending=Array.isArray(care.pending)?care.pending:[];
 
   const cards=[
@@ -273,6 +296,24 @@ function buildHome(domains){
       subtitle:(workout.todayPlanLabel??'今日のメニュー')+'・今週 '+Number(workout.weekCount??0)+' / '+Number(workout.weekGoal??7)+'日'+(workout.completedToday?'・実施済み':''),
       actionId:'workout.open',
       reasonCode:workout.completedToday?'completed_today':'workout_pending'
+    },
+    {
+      id:'study',
+      domain:'study',
+      variant:'shortcut',
+      priority:50,
+      visible:true,
+      state:study.studiedToday?'done':'todo',
+      title:'勉強',
+      subtitle:study.studiedToday
+        ?'今日 '+Number(study.todayCount??0)+'問・正解 '+Number(study.todayCorrect??0)+'問'
+        :'今日の学習を始めよう',
+      actionId:'study.openBookkeeping',
+      reasonCode:study.studiedToday?'studied_today':'study_not_started',
+      data:{
+        recommendedTopic:study.recommendedTopic??'帳簿記入',
+        weakness:Array.isArray(study.weakness)?study.weakness:[]
+      }
     }
   ].sort((a,b)=>b.priority-a.priority);
 
@@ -280,7 +321,8 @@ function buildHome(domains){
     {id:'health.recordMorning',enabled:!morning.completedToday,label:'からだ記録',target:'health'},
     {id:'care.recordHairRemoval',enabled:pending.includes('hairRemoval'),label:'脱毛を記録',target:'care'},
     {id:'care.recordNails',enabled:pending.includes('nails'),label:'爪切りを記録',target:'care'},
-    {id:'workout.open',enabled:true,label:'筋トレを開く',target:'workout'}
+    {id:'workout.open',enabled:true,label:'筋トレを開く',target:'workout'},
+    {id:'study.openBookkeeping',enabled:true,label:'簿記を開く',target:'study'}
   ];
 
   return {
@@ -323,6 +365,7 @@ export function deriveHubState(current,{now=new Date()}={}){
   next.domains.care=deriveCare(next.domains.care,today,nowIso);
   next.domains.workout=deriveWorkout(next.domains.workout,today,nowIso);
   next.domains.commute=deriveCommute(next.domains.commute,nowDate);
+  next.domains.study=deriveStudy(next.domains.study,today,nowIso);
   next.domains=deriveOtherDomains(next.domains,nowIso);
   next.home=buildHome(next.domains);
   next.capabilities=buildCapabilities(next.domains);
