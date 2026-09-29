@@ -15,16 +15,17 @@ test('uses Asia/Tokyo date at read time',()=>{
   assert.equal(jstDateKey('2026-09-28T23:30:00Z'),'2026-09-29');
 });
 
-test('morning record hides the body-record card only for the recorded day',()=>{
+test('morning record derives HOME state without changing the stored fact',()=>{
   const state=createEmptyHubState();
   state.domains.health.morning={lastRecordedDate:'2026-09-29'};
   const sameDay=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
   const nextDay=deriveHubState(state,{now:'2026-09-30T03:00:00Z'});
 
-  assert.equal(sameDay.domains.health.morning.completedToday,true);
-  assert.equal(sameDay.domains.health.morning.showToday,false);
-  assert.equal(nextDay.domains.health.morning.completedToday,false);
-  assert.equal(nextDay.domains.health.morning.showToday,true);
+  assert.equal(sameDay.domains.health.morning.derived.completedToday,true);
+  assert.equal(sameDay.domains.health.morning.derived.showToday,false);
+  assert.equal(nextDay.domains.health.morning.derived.completedToday,false);
+  assert.equal(nextDay.domains.health.morning.derived.showToday,true);
+  assert.equal(state.domains.health.morning.derived,undefined);
 });
 
 test('hair removal follows Tue Thu Sat targets with previous-day suppression',()=>{
@@ -45,7 +46,7 @@ test('nails allow Tue or Wed early completion and carry missed Thursday forward'
   assert.equal(nailDue('2026-09-24','2026-10-05'),true);
 });
 
-test('workout projection matches the current PPL schedule and weekly count',()=>{
+test('workout projection matches current PPL schedule and weekly count',()=>{
   assert.equal(scheduledWorkoutPlan('2026-09-28'),'push');
   assert.equal(scheduledWorkoutPlan('2026-09-29'),'pull');
   assert.equal(scheduledWorkoutPlan('2026-09-30'),'legs');
@@ -54,6 +55,7 @@ test('workout projection matches the current PPL schedule and weekly count',()=>
 
   const state=createEmptyHubState();
   state.domains.workout={
+    ...state.domains.workout,
     recentCompletedDates:['2026-09-28','2026-09-29','2026-09-29'],
     lastCompletedDate:'2026-09-29',
     lastPlan:'pull',
@@ -61,23 +63,63 @@ test('workout projection matches the current PPL schedule and weekly count',()=>
   };
   const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
 
-  assert.equal(projected.domains.workout.todayPlan,'pull');
-  assert.equal(projected.domains.workout.weekCount,2);
-  assert.equal(projected.domains.workout.completedToday,true);
-  assert.equal(projected.domains.workout.actionNeeded,false);
-  assert.equal(projected.domains.workout.showToday,true);
+  assert.equal(projected.domains.workout.derived.todayPlan,'pull');
+  assert.equal(projected.domains.workout.derived.weekCount,2);
+  assert.equal(projected.domains.workout.derived.completedToday,true);
+  assert.equal(projected.domains.workout.derived.actionNeeded,false);
+  assert.equal(projected.domains.workout.derived.showToday,true);
 });
 
-test('care projection exposes HOME-ready pending state',()=>{
+test('current response exposes HOME-ready cards actions and capabilities',()=>{
   const state=createEmptyHubState();
+  state.domains.health={
+    ...state.domains.health,
+    status:'ready',
+    morning:{lastRecordedDate:'2026-09-28'}
+  };
   state.domains.care={
-    hairRemoval:{lastDone:'2026-09-28'},
+    ...state.domains.care,
+    status:'ready',
+    hairRemoval:{lastDone:'2026-09-27'},
     nails:{lastDone:'2026-09-24'}
   };
-  const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
+  state.domains.workout={
+    ...state.domains.workout,
+    status:'ready',
+    recentCompletedDates:['2026-09-28']
+  };
 
-  assert.equal(projected.domains.care.hairRemoval.showToday,false);
-  assert.equal(projected.domains.care.nails.showToday,false);
-  assert.deepEqual(projected.domains.care.pending,[]);
-  assert.equal(projected.domains.care.showToday,false);
+  const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
+  const bodyCard=projected.home.cards.find((card)=>card.id==='morning-body');
+  const careCard=projected.home.cards.find((card)=>card.id==='care');
+  const workoutCard=projected.home.cards.find((card)=>card.id==='workout');
+
+  assert.equal(projected.meta.localDate,'2026-09-29');
+  assert.equal(projected.meta.timeZone,'Asia/Tokyo');
+  assert.equal(bodyCard.visible,true);
+  assert.equal(bodyCard.reasonCode,'not_recorded_today');
+  assert.equal(careCard.visible,true);
+  assert.deepEqual(careCard.data.pending,['hairRemoval']);
+  assert.equal(workoutCard.visible,true);
+  assert.equal(workoutCard.state,'todo');
+  assert.equal(projected.home.alerts.length,0);
+  assert.equal(projected.home.actions.find((action)=>action.id==='health.recordMorning').enabled,true);
+  assert.equal(projected.capabilities.health.status,'ready');
+  assert.equal(projected.capabilities.calendar.status,'planned');
+});
+
+test('freshness expires dynamic data when expiresAt passes',()=>{
+  const state=createEmptyHubState();
+  state.domains.weather={
+    ...state.domains.weather,
+    status:'ready',
+    updatedAt:'2026-09-29T00:00:00.000Z',
+    freshness:{
+      status:'fresh',
+      updatedAt:'2026-09-29T00:00:00.000Z',
+      expiresAt:'2026-09-29T01:00:00.000Z'
+    }
+  };
+  const projected=deriveHubState(state,{now:'2026-09-29T02:00:00.000Z'});
+  assert.equal(projected.domains.weather.freshness.status,'expired');
 });
