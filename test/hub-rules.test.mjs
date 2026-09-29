@@ -123,3 +123,61 @@ test('freshness expires dynamic data when expiresAt passes',()=>{
   const projected=deriveHubState(state,{now:'2026-09-29T02:00:00.000Z'});
   assert.equal(projected.domains.weather.freshness.status,'expired');
 });
+
+
+test('study projection resets daily counters when snapshot date is not today',()=>{
+  const state=createEmptyHubState();
+  state.domains.study={
+    ...state.domains.study,
+    status:'ready',
+    bookkeeping:{
+      snapshotDate:'2026-09-28',
+      attemptedTotal:120,
+      correctTotal:100,
+      todayCount:8,
+      todayCorrect:7,
+      latestCategory:'帳簿記入',
+      recommendedTopic:'帳簿記入',
+      weakness:[{category:'帳簿記入',status:'苦手候補',score:55}]
+    }
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
+  assert.equal(projected.domains.study.bookkeeping.derived.todayCount,0);
+  assert.equal(projected.domains.study.bookkeeping.derived.todayCorrect,0);
+  assert.equal(projected.domains.study.bookkeeping.derived.studiedToday,false);
+  assert.equal(projected.domains.study.bookkeeping.attemptedTotal,120);
+});
+
+test('study projection exposes HOME-ready bookkeeping card and recommendation',()=>{
+  const state=createEmptyHubState();
+  state.domains.study={
+    ...state.domains.study,
+    status:'ready',
+    bookkeeping:{
+      snapshotDate:'2026-09-29',
+      attemptedTotal:128,
+      correctTotal:107,
+      todayCount:8,
+      todayCorrect:7,
+      lastAttemptAt:'2026-09-29T02:50:00.000Z',
+      latestCategory:'帳簿記入',
+      weakness:[{category:'帳簿記入',status:'苦手候補',score:55}],
+      recommendedTopic:'帳簿記入'
+    }
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T03:00:00Z'});
+  const study=projected.domains.study.bookkeeping.derived;
+  const card=projected.home.cards.find((item)=>item.id==='study');
+
+  assert.equal(study.todayCount,8);
+  assert.equal(study.todayCorrect,7);
+  assert.equal(study.studiedToday,true);
+  assert.equal(study.recommendedTopic,'帳簿記入');
+  assert.equal(card.state,'done');
+  assert.equal(card.subtitle,'今日 8問・正解 7問');
+  assert.equal(card.data.recommendedTopic,'帳簿記入');
+  assert.equal(projected.home.actions.find((action)=>action.id==='study.openBookkeeping').enabled,true);
+  assert.equal(projected.capabilities.study.status,'ready');
+});
