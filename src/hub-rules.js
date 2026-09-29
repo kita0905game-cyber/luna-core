@@ -1,4 +1,4 @@
-const TIME_ZONE='Asia/Tokyo';
+import { HUB_TIME_ZONE, normalizeHubState } from './hub-state.js';
 
 const PLAN_LABELS={
   push:'PUSH｜胸・肩・腕',
@@ -6,6 +6,8 @@ const PLAN_LABELS={
   legs:'LEGS｜脚・体幹',
   recovery:'回復日｜軽いストレッチ'
 };
+
+const INTEGRATED_DOMAINS=new Set(['health','care','workout']);
 
 function clone(value){
   return value===undefined?undefined:structuredClone(value);
@@ -39,7 +41,7 @@ function firstThursdayOnOrAfter(key){
 export function jstDateKey(input=new Date()){
   const date=input instanceof Date?input:new Date(input);
   const parts=new Intl.DateTimeFormat('en-US',{
-    timeZone:TIME_ZONE,
+    timeZone:HUB_TIME_ZONE,
     year:'numeric',
     month:'2-digit',
     day:'2-digit'
@@ -88,46 +90,80 @@ function normalizedDates(values){
   return [...new Set(list.filter((value)=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)))].sort();
 }
 
-function deriveHealth(domain,today){
+function derivedFreshness(domain,nowIso){
+  const next={...(domain?.freshness??{})};
+  const updatedAt=next.updatedAt??domain?.updatedAt??null;
+  const expiresAt=next.expiresAt??null;
+  if(domain?.status==='unavailable'||domain?.status==='error'||domain?.status==='not_configured'){
+    return {...next,status:'unavailable',updatedAt,expiresAt};
+  }
+  if(expiresAt&&Number.isFinite(Date.parse(expiresAt))&&Date.parse(nowIso)>Date.parse(expiresAt)){
+    return {...next,status:'expired',updatedAt,expiresAt};
+  }
+  if(next.status==='stale'){
+    return {...next,status:'stale',updatedAt,expiresAt};
+  }
+  if(updatedAt){
+    return {...next,status:'fresh',updatedAt,expiresAt};
+  }
+  return {...next,status:'unknown',updatedAt:null,expiresAt};
+}
+
+function deriveHealth(domain,today,nowIso){
   const next=clone(domain??{});
   const morning={...(next.morning??{})};
   const completedToday=morning.lastRecordedDate===today;
+  next.freshness=derivedFreshness(next,nowIso);
   next.morning={
     ...morning,
-    completedToday,
-    showToday:!completedToday
+    derived:{
+      ...(morning.derived??{}),
+      completedToday,
+      showToday:!completedToday
+    }
   };
   return next;
 }
 
-function deriveCare(domain,today){
+function deriveCare(domain,today,nowIso){
   const next=clone(domain??{});
   const hairRemoval={...(next.hairRemoval??{})};
   const nails={...(next.nails??{})};
   const hairDue=hairRemovalDue(hairRemoval.lastDone,today);
   const nailTarget=nextNailTarget(nails.lastDone,today);
   const nailsDue=nailDue(nails.lastDone,today);
-
-  next.hairRemoval={
-    ...hairRemoval,
-    dueToday:hairDue,
-    showToday:hairDue
-  };
-  next.nails={
-    ...nails,
-    targetDate:nailTarget,
-    dueToday:nailsDue,
-    showToday:nailsDue
-  };
-  next.pending=[
+  const pending=[
     ...(hairDue?['hairRemoval']:[]),
     ...(nailsDue?['nails']:[])
   ];
-  next.showToday=next.pending.length>0;
+
+  next.freshness=derivedFreshness(next,nowIso);
+  next.hairRemoval={
+    ...hairRemoval,
+    derived:{
+      ...(hairRemoval.derived??{}),
+      dueToday:hairDue,
+      showToday:hairDue
+    }
+  };
+  next.nails={
+    ...nails,
+    derived:{
+      ...(nails.derived??{}),
+      targetDate:nailTarget,
+      dueToday:nailsDue,
+      showToday:nailsDue
+    }
+  };
+  next.derived={
+    ...(next.derived??{}),
+    pending,
+    showToday:pending.length>0
+  };
   return next;
 }
 
-function deriveWorkout(domain,today){
+function deriveWorkout(domain,today,nowIso){
   const next=clone(domain??{});
   const recentDates=normalizedDates([
     ...(Array.isArray(next.recentCompletedDates)?next.recentCompletedDates:[]),
@@ -141,27 +177,135 @@ function deriveWorkout(domain,today){
 
   return {
     ...next,
+    freshness:derivedFreshness(next,nowIso),
     recentCompletedDates:recentDates.slice(-120),
-    todayPlan:plan,
-    todayPlanLabel:PLAN_LABELS[plan],
-    completedToday,
-    actionNeeded:!completedToday,
-    showToday:true,
-    weekStart:start,
-    weekCount,
-    weekGoal:7
+    derived:{
+      ...(next.derived??{}),
+      todayPlan:plan,
+      todayPlanLabel:PLAN_LABELS[plan],
+      completedToday,
+      actionNeeded:!completedToday,
+      showToday:true,
+      weekStart:start,
+      weekCount,
+      weekGoal:7
+    }
   };
 }
 
+function deriveOtherDomains(domains,nowIso){
+  const next={...domains};
+  for(const [name,domain] of Object.entries(next)){
+    if(['health','care','workout'].includes(name)) continue;
+    next[name]={
+      ...domain,
+      freshness:derivedFreshness(domain,nowIso)
+    };
+  }
+  return next;
+}
+
+function careSubtitle(pending){
+  if(pending.length===2) return '脱毛・爪切りが対象です';
+  if(pending[0]==='hairRemoval') return '脱毛が対象です';
+  if(pending[0]==='nails') return '爪切りが対象です';
+  return '今日のケアは完了しています';
+}
+
+function buildHome(domains){
+  const morning=domains.health?.morning?.derived??{};
+  const care=domains.care?.derived??{};
+  const workout=domains.workout?.derived??{};
+  const pending=Array.isArray(care.pending)?care.pending:[];
+
+  const cards=[
+    {
+      id:'morning-body',
+      domain:'health',
+      variant:'habit',
+      priority:90,
+      visible:Boolean(morning.showToday),
+      state:morning.completedToday?'done':'todo',
+      title:'からだ記録',
+      subtitle:morning.completedToday?'今日の記録済み':'今日の記録がまだです',
+      actionId:'health.recordMorning',
+      reasonCode:morning.completedToday?'recorded_today':'not_recorded_today'
+    },
+    {
+      id:'care',
+      domain:'care',
+      variant:'habit',
+      priority:70,
+      visible:Boolean(care.showToday),
+      state:care.showToday?'todo':'done',
+      title:'ケア',
+      subtitle:careSubtitle(pending),
+      actionId:'care.open',
+      reasonCode:care.showToday?'care_due_today':'care_complete_today',
+      data:{pending}
+    },
+    {
+      id:'workout',
+      domain:'workout',
+      variant:'habit',
+      priority:60,
+      visible:true,
+      state:workout.completedToday?'done':'todo',
+      title:'今日の習慣・筋トレ',
+      subtitle:(workout.todayPlanLabel??'今日のメニュー')+'・今週 '+Number(workout.weekCount??0)+' / '+Number(workout.weekGoal??7)+'日'+(workout.completedToday?'・実施済み':''),
+      actionId:'workout.open',
+      reasonCode:workout.completedToday?'completed_today':'workout_pending'
+    }
+  ].sort((a,b)=>b.priority-a.priority);
+
+  const actions=[
+    {id:'health.recordMorning',enabled:!morning.completedToday,label:'からだ記録',target:'health'},
+    {id:'care.recordHairRemoval',enabled:pending.includes('hairRemoval'),label:'脱毛を記録',target:'care'},
+    {id:'care.recordNails',enabled:pending.includes('nails'),label:'爪切りを記録',target:'care'},
+    {id:'workout.open',enabled:true,label:'筋トレを開く',target:'workout'}
+  ];
+
+  return {
+    cards,
+    alerts:[],
+    actions
+  };
+}
+
+function buildCapabilities(domains){
+  return Object.fromEntries(Object.keys(domains).map((name)=>{
+    const domain=domains[name]??{};
+    const configured=INTEGRATED_DOMAINS.has(name)||domain.status!=='unknown';
+    return [name,{
+      supported:true,
+      configured,
+      status:configured
+        ?(domain.status==='error'||domain.status==='unavailable'?'error':'ready')
+        :'planned'
+    }];
+  }));
+}
+
 export function deriveHubState(current,{now=new Date()}={}){
-  const next=clone(current);
-  const today=jstDateKey(now);
-  next.localDate=today;
-  next.timeZone=TIME_ZONE;
-  next.derivedAt=(now instanceof Date?now:new Date(now)).toISOString();
+  const stored=normalizeHubState(current);
+  const next=clone(stored);
+  const nowDate=now instanceof Date?now:new Date(now);
+  const nowIso=nowDate.toISOString();
+  const today=jstDateKey(nowDate);
+
+  next.meta={
+    ...next.meta,
+    generatedAt:nowIso,
+    localDate:today,
+    timeZone:HUB_TIME_ZONE
+  };
+
   next.domains={...(next.domains??{})};
-  next.domains.health=deriveHealth(next.domains.health,today);
-  next.domains.care=deriveCare(next.domains.care,today);
-  next.domains.workout=deriveWorkout(next.domains.workout,today);
+  next.domains.health=deriveHealth(next.domains.health,today,nowIso);
+  next.domains.care=deriveCare(next.domains.care,today,nowIso);
+  next.domains.workout=deriveWorkout(next.domains.workout,today,nowIso);
+  next.domains=deriveOtherDomains(next.domains,nowIso);
+  next.home=buildHome(next.domains);
+  next.capabilities=buildCapabilities(next.domains);
   return next;
 }
