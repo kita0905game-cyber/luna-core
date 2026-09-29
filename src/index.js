@@ -4,12 +4,13 @@ import { handleMorningRequest } from './morning-routes.js';
 import { handleHubRequest } from './hub-routes.js';
 import { runScheduledMorning } from './morning-runner.js';
 import { runWeatherRefresh } from './weather-updater.js';
+import { runtimeMetadata } from './runtime-meta.js';
 export { QuestStateStore };
 
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname==='/health') return Response.json({ok:true,service:'LUNA CORE',time:new Date().toISOString()});
+    if(url.pathname==='/health') return Response.json({ok:true,service:'LUNA CORE',deployment:runtimeMetadata(env),time:new Date().toISOString()});
     const hubResponse=await handleHubRequest(request,env); if(hubResponse) return hubResponse;
     const morningResponse=await handleMorningRequest(request,env); if(morningResponse) return morningResponse;
     const questResponse=await handleQuestRequest(request,env); if(questResponse) return questResponse;
