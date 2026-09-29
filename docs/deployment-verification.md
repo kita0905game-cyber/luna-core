@@ -12,7 +12,7 @@ feature branch
   -> GitHub Actions Check
   -> merge to main
   -> Cloudflare Workers Builds
-  -> Wrangler custom build captures Git identity
+  -> npm run deploy captures Git identity
   -> wrangler deploy
   -> Cloudflare Version Metadata binding
   -> /health, /hub, /hub/status expose deployed identity
@@ -26,7 +26,7 @@ Cloudflare Workers Builds injects these build-time environment variables:
 - WORKERS_CI_BRANCH
 - WORKERS_CI_BUILD_UUID
 
-Wrangler runs `scripts/write-build-meta.mjs` as a custom build command before bundling. The script writes those values into `src/build-meta.generated.js` in the ephemeral build workspace.
+The production deploy script runs `node scripts/write-build-meta.mjs` immediately before Wrangler. This is intentional because Cloudflare Workers Builds does not honor Wrangler custom-build configuration. The script writes the Workers Builds Git identity into `src/build-meta.generated.js` in the ephemeral build workspace.
 
 The deployed Worker therefore reports the exact Git commit that produced the running bundle.
 
@@ -87,6 +87,6 @@ Expected production configuration:
 
 - Git repository: `kita0905game-cyber/luna-core`
 - production branch: `main`
-- deploy command: `npx wrangler deploy`
+- deploy command: `npm run deploy`
 
 No GitHub Actions deployment secret is required for this architecture. GitHub Actions remains the code/test gate; Cloudflare Workers Builds owns production deployment.
