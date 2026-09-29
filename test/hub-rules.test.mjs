@@ -234,3 +234,66 @@ test('diary projection exposes yesterday preview and HOME action without full di
   assert.equal(projected.capabilities.diary.status,'ready');
   assert.equal(projected.domains.diary.text,undefined);
 });
+
+
+test('news projection keeps only six current items and exposes HOME feed',()=>{
+  const state=createEmptyHubState();
+  state.domains.news={
+    ...state.domains.news,
+    status:'ready',
+    sourceName:'NHK',
+    sourceUrl:'https://news.web.nhk/newsweb/',
+    updatedAt:'2026-09-29T03:00:00.000Z',
+    freshness:{
+      status:'fresh',
+      updatedAt:'2026-09-29T03:00:00.000Z',
+      expiresAt:'2026-09-29T03:20:00.000Z'
+    },
+    items:Array.from({length:8},(_,index)=>({
+      title:'ニュース'+index,
+      url:'https://example.com/'+index,
+      publishedAt:new Date(Date.parse('2026-09-29T02:00:00.000Z')+index*60000).toISOString()
+    }))
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T03:10:00.000Z'});
+  const news=projected.domains.news;
+  const card=projected.home.cards.find((item)=>item.id==='news');
+
+  assert.equal(news.items.length,6);
+  assert.equal(news.derived.available,true);
+  assert.equal(news.derived.itemCount,6);
+  assert.equal(card.state,'ready');
+  assert.equal(card.data.items.length,6);
+  assert.equal(card.data.sourceName,'NHK');
+  assert.equal(projected.home.actions.find((action)=>action.id==='news.openSource').enabled,true);
+  assert.equal(projected.capabilities.news.status,'ready');
+});
+
+test('expired news remains visible as unavailable instead of pretending it is current',()=>{
+  const state=createEmptyHubState();
+  state.domains.news={
+    ...state.domains.news,
+    status:'ready',
+    sourceName:'NHK',
+    updatedAt:'2026-09-29T03:00:00.000Z',
+    freshness:{
+      status:'fresh',
+      updatedAt:'2026-09-29T03:00:00.000Z',
+      expiresAt:'2026-09-29T03:20:00.000Z'
+    },
+    items:[{
+      title:'古いニュース',
+      url:'https://example.com/old',
+      publishedAt:'2026-09-29T02:00:00.000Z'
+    }]
+  };
+
+  const projected=deriveHubState(state,{now:'2026-09-29T03:30:00.000Z'});
+  const card=projected.home.cards.find((item)=>item.id==='news');
+
+  assert.equal(projected.domains.news.freshness.status,'expired');
+  assert.equal(projected.domains.news.derived.available,false);
+  assert.equal(card.state,'unavailable');
+  assert.equal(projected.home.actions.find((action)=>action.id==='news.openSource').enabled,false);
+});
