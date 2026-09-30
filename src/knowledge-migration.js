@@ -1,10 +1,15 @@
 import { getDocument, importDocuments, upsertDocument } from './knowledge-store.js';
 
-const STAGING_BASE_ID='appXHHkgXH1yFwnjC';
-const STAGING_TABLE_ID='tblbv3WM7V0XYa7vc';
+function bridgeConfig(env){
+  const baseId=String(env.KNOWLEDGE_AIRTABLE_BASE_ID||'').trim();
+  const tableId=String(env.KNOWLEDGE_AIRTABLE_TABLE_ID||'').trim();
+  if(!baseId||!tableId) throw new Error('knowledge_airtable_bridge_not_configured');
+  return {baseId,tableId};
+}
 
-function airtableUrl(recordId=null){
-  const base=`https://api.airtable.com/v0/${STAGING_BASE_ID}/${STAGING_TABLE_ID}`;
+function airtableUrl(env,recordId=null){
+  const {baseId,tableId}=bridgeConfig(env);
+  const base=`https://api.airtable.com/v0/${baseId}/${tableId}`;
   return recordId?`${base}/${recordId}`:base;
 }
 
@@ -14,7 +19,7 @@ function airtableHeaders(env){
 }
 
 async function fetchStagingPage(env,offset=null){
-  const url=new URL(airtableUrl());
+  const url=new URL(airtableUrl(env));
   url.searchParams.set('pageSize','100');
   if(offset) url.searchParams.set('offset',offset);
   const response=await fetch(url,{headers:airtableHeaders(env)});
@@ -26,7 +31,7 @@ async function fetchStagingPage(env,offset=null){
 }
 
 async function patchBridgeRecord(env,recordId,fields){
-  const response=await fetch(airtableUrl(recordId),{
+  const response=await fetch(airtableUrl(env,recordId),{
     method:'PATCH',
     headers:airtableHeaders(env),
     body:JSON.stringify({fields})
@@ -95,8 +100,8 @@ export async function migrateKnowledgeFromAirtable(env){
   }
   return {
     source:'airtable',
-    sourceBaseId:STAGING_BASE_ID,
-    sourceTableId:STAGING_TABLE_ID,
+    sourceBaseId:bridgeConfig(env).baseId,
+    sourceTableId:bridgeConfig(env).tableId,
     sourceCount:rows.length,
     importedCount:imported.length,
     documents:imported.map((doc)=>({
@@ -195,8 +200,8 @@ export async function syncKnowledgeBridge(env){
 
   return {
     status:results.some((r)=>r.status==='error'||r.status==='conflict')?'partial':'completed',
-    sourceBaseId:STAGING_BASE_ID,
-    sourceTableId:STAGING_TABLE_ID,
+    sourceBaseId:bridgeConfig(env).baseId,
+    sourceTableId:bridgeConfig(env).tableId,
     processed:results.length,
     results
   };
