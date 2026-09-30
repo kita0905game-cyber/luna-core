@@ -57,6 +57,14 @@ export async function getActiveConstitution(env){
   ).first();
 }
 
+export async function getPreferredConstitution(env,{allowDraft=false}={}){
+  const active=await getActiveConstitution(env);
+  if(active||!allowDraft||!knowledgeConfigured(env)) return active;
+  return env.KNOWLEDGE_DB.prepare(
+    "SELECT * FROM knowledge_documents WHERE kind='constitution' AND status='draft' ORDER BY updated_at DESC LIMIT 1"
+  ).first();
+}
+
 export async function listDocuments(env,{kind=null,status=null,limit=20}={}){
   if(!knowledgeConfigured(env)) return [];
   const where=[],bind=[];
