@@ -11,6 +11,7 @@ import {
   listMemoryCandidates,
   reviewMemoryCandidate
 } from './knowledge-store.js';
+import { migrateKnowledgeFromAirtable } from './knowledge-migration.js';
 import { runtimeMetadata } from './runtime-meta.js';
 
 const json=(data,init={})=>{
@@ -120,6 +121,11 @@ export async function handleKnowledgeRequest(request,env){
       const body=await request.json();
       const documents=await importDocuments(env,body?.documents,{actor:body?.actor||'library-migration'});
       return json({ok:true,count:documents.length,documents,time:new Date().toISOString()},{status:201});
+    }
+
+    if(url.pathname==='/knowledge/migrate/airtable'&&request.method==='POST'){
+      const migration=await migrateKnowledgeFromAirtable(env);
+      return json({ok:true,migration,time:new Date().toISOString()},{status:201});
     }
 
     if(url.pathname==='/knowledge/candidate'&&request.method==='POST'){
