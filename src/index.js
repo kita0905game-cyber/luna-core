@@ -2,6 +2,7 @@ import { QuestStateStore } from './quest-store.js';
 import { handleQuestRequest } from './quest-routes.js';
 import { handleMorningRequest } from './morning-routes.js';
 import { handleHubRequest } from './hub-routes.js';
+import { handleKnowledgeRequest } from './knowledge-routes.js';
 import { runScheduledMorning } from './morning-runner.js';
 import { runWeatherRefresh } from './weather-updater.js';
 import { runtimeMetadata } from './runtime-meta.js';
@@ -12,6 +13,7 @@ export default {
     const url=new URL(request.url);
     if(url.pathname==='/health') return Response.json({ok:true,service:'LUNA CORE',deployment:runtimeMetadata(env),time:new Date().toISOString()});
     const hubResponse=await handleHubRequest(request,env); if(hubResponse) return hubResponse;
+    const knowledgeResponse=await handleKnowledgeRequest(request,env); if(knowledgeResponse) return knowledgeResponse;
     const morningResponse=await handleMorningRequest(request,env); if(morningResponse) return morningResponse;
     const questResponse=await handleQuestRequest(request,env); if(questResponse) return questResponse;
     return new Response('LUNA CORE is running');
