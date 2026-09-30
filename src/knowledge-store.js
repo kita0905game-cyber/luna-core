@@ -113,6 +113,15 @@ export async function upsertDocument(env,input,{actor='luna-core',action=null}={
 
   const timestamp=nowIso();
   const hash=await sha256Text(doc.bodyMd);
+  const unchanged=Boolean(current)
+    &&current.content_sha256===hash
+    &&current.kind===doc.kind
+    &&current.title===doc.title
+    &&current.status===doc.status
+    &&String(current.source??'')===String(doc.source??'')
+    &&String(current.source_ref??'')===String(doc.sourceRef??'');
+  if(unchanged) return {...current,unchanged:true};
+
   const nextVersion=current?Number(current.version)+1:1;
   const changeAction=action||(current?'update':'create');
 
