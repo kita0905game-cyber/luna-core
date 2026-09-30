@@ -6,6 +6,7 @@ import { handleKnowledgeRequest } from './knowledge-routes.js';
 import { runScheduledMorning } from './morning-runner.js';
 import { runWeatherRefresh } from './weather-updater.js';
 import { runtimeMetadata } from './runtime-meta.js';
+import { runMemoryCandidateReview } from './memory-review.js';
 export { QuestStateStore };
 
 export default {
@@ -33,6 +34,17 @@ export default {
         ...result
       }));
       if(result.status==='failed'||result.hubSynced===false) throw new Error(result.hubError||result.error||'weather_hub_refresh_failed');
+      return;
+    }
+
+    if(controller.cron==='20 18 * * *'){
+      const result=await runMemoryCandidateReview(env,{limit:5});
+      console.log(JSON.stringify({
+        event:'LUNA_MEMORY_REVIEW',
+        cron:controller.cron,
+        scheduledTime:controller.scheduledTime,
+        ...result
+      }));
       return;
     }
 
