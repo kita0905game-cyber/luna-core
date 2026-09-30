@@ -7,6 +7,7 @@ import { runScheduledMorning } from './morning-runner.js';
 import { runWeatherRefresh } from './weather-updater.js';
 import { runtimeMetadata } from './runtime-meta.js';
 import { runMemoryCandidateReview } from './memory-review.js';
+import { syncKnowledgeBridge } from './knowledge-migration.js';
 export { QuestStateStore };
 
 export default {
@@ -45,6 +46,35 @@ export default {
         scheduledTime:controller.scheduledTime,
         ...result
       }));
+      return;
+    }
+
+    if(controller.cron==='*/5 * * * *'){
+      if(env.LUNA_KNOWLEDGE_SYNC_ENABLED!=='true'){
+        console.log(JSON.stringify({event:'LUNA_KNOWLEDGE_SYNC',status:'skipped',reason:'disabled'}));
+        return;
+      }
+      if(!env.KNOWLEDGE_DB){
+        console.log(JSON.stringify({event:'LUNA_KNOWLEDGE_SYNC',status:'skipped',reason:'knowledge_db_not_configured'}));
+        return;
+      }
+      try{
+        const result=await syncKnowledgeBridge(env);
+        console.log(JSON.stringify({
+          event:'LUNA_KNOWLEDGE_SYNC',
+          cron:controller.cron,
+          scheduledTime:controller.scheduledTime,
+          ...result
+        }));
+      }catch(error){
+        console.error(JSON.stringify({
+          event:'LUNA_KNOWLEDGE_SYNC',
+          status:'failed',
+          cron:controller.cron,
+          scheduledTime:controller.scheduledTime,
+          error:error instanceof Error?error.message:'knowledge_sync_failed'
+        }));
+      }
       return;
     }
 
