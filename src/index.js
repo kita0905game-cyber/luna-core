@@ -8,6 +8,7 @@ import { runWeatherRefresh } from './weather-updater.js';
 import { runtimeMetadata } from './runtime-meta.js';
 import { runMemoryCandidateReview } from './memory-review.js';
 import { syncKnowledgeBridge } from './knowledge-migration.js';
+import { runKnowledgeCutoverSmoke } from './knowledge-cutover-smoke.js';
 export { QuestStateStore };
 
 export default {
@@ -66,6 +67,15 @@ export default {
           scheduledTime:controller.scheduledTime,
           ...result
         }));
+        if(env.LUNA_KNOWLEDGE_CUTOVER_SMOKE_ENABLED==='true'){
+          const smoke=await runKnowledgeCutoverSmoke(env);
+          console.log(JSON.stringify({
+            event:'LUNA_KNOWLEDGE_CUTOVER_SMOKE',
+            cron:controller.cron,
+            scheduledTime:controller.scheduledTime,
+            ...smoke
+          }));
+        }
       }catch(error){
         console.error(JSON.stringify({
           event:'LUNA_KNOWLEDGE_SYNC',
