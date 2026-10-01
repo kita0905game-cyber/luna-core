@@ -66,6 +66,12 @@ export async function handleKnowledgeRequest(request,env){
       phase:'d1-v1',
       databaseConfigured:knowledgeConfigured(env),
       protectedApiConfigured:Boolean(env.LUNA_KNOWLEDGE_TOKEN),
+      bridge:{
+        syncEnabled:env.LUNA_KNOWLEDGE_SYNC_ENABLED==='true',
+        baseConfigured:Boolean(env.KNOWLEDGE_AIRTABLE_BASE_ID),
+        tableConfigured:Boolean(env.KNOWLEDGE_AIRTABLE_TABLE_ID),
+        airtablePatConfigured:Boolean(env.AIRTABLE_PAT)
+      },
       deployment:runtimeMetadata(env),
       time:new Date().toISOString()
     });
