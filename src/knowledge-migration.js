@@ -25,7 +25,14 @@ async function fetchStagingPage(env,offset=null){
   const response=await fetch(url,{headers:airtableHeaders(env)});
   if(!response.ok){
     const detail=await response.text().catch(()=>'');
-    throw new Error(`knowledge_bridge_read_failed_${response.status}_${detail.slice(0,160)}`);
+    let safeDetail='unknown';
+    try{
+      const parsed=JSON.parse(detail);
+      const type=String(parsed?.error?.type||'').replace(/[^A-Z0-9_\-]/gi,'').slice(0,80);
+      const message=String(parsed?.error?.message||'').replace(/[\r\n]+/g,' ').slice(0,120);
+      safeDetail=[type,message].filter(Boolean).join(':')||'unknown';
+    }catch{}
+    throw new Error(`knowledge_bridge_read_failed_${response.status}_${safeDetail}`);
   }
   return response.json();
 }
