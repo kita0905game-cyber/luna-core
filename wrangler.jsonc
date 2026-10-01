@@ -29,5 +29,13 @@
       "type": "durable-object",
       "storage": "sqlite"
     }
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "KNOWLEDGE_DB",
+      "database_name": "luna-knowledge",
+      "database_id": "a02fa72a-da1e-4802-9002-b2bb53ff45e3",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
