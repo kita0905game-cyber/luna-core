@@ -14,6 +14,7 @@ import {
 import { fetchKnowledgeBridge, migrateKnowledgeFromAirtable, syncKnowledgeBridge } from './knowledge-migration.js';
 import { runMemoryCandidateReview } from './memory-review.js';
 import { runtimeMetadata } from './runtime-meta.js';
+import { getKnowledgeCutoverSmokeStatus } from './knowledge-cutover-smoke.js';
 
 const json=(data,init={})=>{
   const headers=new Headers(init.headers||{});
@@ -82,6 +83,7 @@ export async function handleKnowledgeRequest(request,env){
         bridgeProbe={ok:false,code,detail};
       }
     }
+    const cutoverSmoke=knowledgeConfigured(env)?await getKnowledgeCutoverSmokeStatus(env):null;
     return json({
       ok:true,
       service:'LUNA CORE',
@@ -89,6 +91,7 @@ export async function handleKnowledgeRequest(request,env){
       phase:'d1-v1',
       databaseConfigured:knowledgeConfigured(env),
       protectedApiConfigured:Boolean(env.LUNA_KNOWLEDGE_TOKEN),
+      cutoverSmoke,
       bridge:{
         syncEnabled:env.LUNA_KNOWLEDGE_SYNC_ENABLED==='true',
         baseConfigured:Boolean(env.KNOWLEDGE_AIRTABLE_BASE_ID),
