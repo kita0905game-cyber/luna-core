@@ -74,7 +74,12 @@ export async function handleKnowledgeRequest(request,env){
         else if(message.includes('knowledge_bridge_read_failed_404')) code='airtable_404';
         else if(message.startsWith('invalid_bridge_record_')) code='invalid_bridge_record';
         else if(message.startsWith('knowledge_bridge_read_failed_')) code='airtable_read_failed';
-        bridgeProbe={ok:false,code};
+        let detail=null;
+        if(message.startsWith('knowledge_bridge_read_failed_')){
+          const parts=message.split('_');
+          if(parts.length>=6) detail=parts.slice(5).join('_').slice(0,160);
+        }
+        bridgeProbe={ok:false,code,detail};
       }
     }
     return json({
