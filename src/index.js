@@ -1,4 +1,5 @@
 import { QuestStateStore } from './quest-store.js';
+import { AiBudgetStore } from './ai-budget-store.js';
 import { handleQuestRequest } from './quest-routes.js';
 import { handleMorningRequest } from './morning-routes.js';
 import { handleHubRequest } from './hub-routes.js';
@@ -9,7 +10,7 @@ import { runtimeMetadata } from './runtime-meta.js';
 import { runMemoryCandidateReview } from './memory-review.js';
 import { syncKnowledgeBridge } from './knowledge-migration.js';
 import { runKnowledgeCutoverSmoke } from './knowledge-cutover-smoke.js';
-export { QuestStateStore };
+export { QuestStateStore, AiBudgetStore };
 
 export default {
   async fetch(request,env){
