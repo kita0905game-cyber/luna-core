@@ -37,5 +37,10 @@
       "database_id": "a02fa72a-da1e-4802-9002-b2bb53ff45e3",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "vars": {
+    "KNOWLEDGE_AIRTABLE_BASE_ID": "appXHHkgXH1yFwnjC",
+    "KNOWLEDGE_AIRTABLE_TABLE_ID": "tblbv3WM7V0XYa7vc",
+    "LUNA_KNOWLEDGE_SYNC_ENABLED": "true"
+  }
 }
