@@ -11,10 +11,9 @@ import {
   listMemoryCandidates,
   reviewMemoryCandidate
 } from './knowledge-store.js';
-import { fetchKnowledgeBridge, migrateKnowledgeFromAirtable, syncKnowledgeBridge } from './knowledge-migration.js';
+import { migrateKnowledgeFromAirtable, syncKnowledgeBridge } from './knowledge-migration.js';
 import { runMemoryCandidateReview } from './memory-review.js';
 import { runtimeMetadata } from './runtime-meta.js';
-import { getKnowledgeCutoverSmokeStatus } from './knowledge-cutover-smoke.js';
 
 const json=(data,init={})=>{
   const headers=new Headers(init.headers||{});
@@ -60,30 +59,6 @@ export async function handleKnowledgeRequest(request,env){
   }
 
   if(url.pathname==='/knowledge'&&request.method==='GET'){
-    let bridgeProbe=null;
-    if(url.searchParams.get('probe')==='1'){
-      try{
-        const rows=await fetchKnowledgeBridge(env);
-        bridgeProbe={ok:true,recordCount:rows.length};
-      }catch(error){
-        const message=error instanceof Error?error.message:'knowledge_bridge_probe_failed';
-        let code='unknown';
-        if(message==='airtable_pat_not_configured') code='pat_not_configured';
-        else if(message==='knowledge_airtable_bridge_not_configured') code='bridge_not_configured';
-        else if(message.includes('knowledge_bridge_read_failed_401')) code='airtable_401';
-        else if(message.includes('knowledge_bridge_read_failed_403')) code='airtable_403';
-        else if(message.includes('knowledge_bridge_read_failed_404')) code='airtable_404';
-        else if(message.startsWith('invalid_bridge_record_')) code='invalid_bridge_record';
-        else if(message.startsWith('knowledge_bridge_read_failed_')) code='airtable_read_failed';
-        let detail=null;
-        if(message.startsWith('knowledge_bridge_read_failed_')){
-          const parts=message.split('_');
-          if(parts.length>=6) detail=parts.slice(5).join('_').slice(0,160);
-        }
-        bridgeProbe={ok:false,code,detail};
-      }
-    }
-    const cutoverSmoke=knowledgeConfigured(env)?await getKnowledgeCutoverSmokeStatus(env):null;
     return json({
       ok:true,
       service:'LUNA CORE',
@@ -91,14 +66,6 @@ export async function handleKnowledgeRequest(request,env){
       phase:'d1-v1',
       databaseConfigured:knowledgeConfigured(env),
       protectedApiConfigured:Boolean(env.LUNA_KNOWLEDGE_TOKEN),
-      cutoverSmoke,
-      bridge:{
-        syncEnabled:env.LUNA_KNOWLEDGE_SYNC_ENABLED==='true',
-        baseConfigured:Boolean(env.KNOWLEDGE_AIRTABLE_BASE_ID),
-        tableConfigured:Boolean(env.KNOWLEDGE_AIRTABLE_TABLE_ID),
-        airtablePatConfigured:Boolean(env.AIRTABLE_PAT),
-        probe:bridgeProbe
-      },
       deployment:runtimeMetadata(env),
       time:new Date().toISOString()
     });
