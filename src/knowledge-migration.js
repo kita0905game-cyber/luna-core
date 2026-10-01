@@ -37,7 +37,7 @@ async function fetchStagingPage(env,offset=null){
   return response.json();
 }
 
-async function patchBridgeRecord(env,recordId,fields){
+export async function patchBridgeRecord(env,recordId,fields){
   const response=await fetch(airtableUrl(env,recordId),{
     method:'PATCH',
     headers:airtableHeaders(env),
