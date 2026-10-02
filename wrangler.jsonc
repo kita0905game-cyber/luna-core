@@ -53,6 +53,7 @@
     "LUNA_KNOWLEDGE_CUTOVER_SMOKE_ENABLED": "false",
     "AI_BUDGET_INTERNAL_LIMIT_USD": "1.80",
     "AI_BUDGET_TIME_ZONE": "UTC",
-    "OPENAI_MODEL": "gpt-6-luna"
+    "OPENAI_MODEL": "gpt-6-luna",
+    "LQ_AI_ENABLED": "false"
   }
 }
