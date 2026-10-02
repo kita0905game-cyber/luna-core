@@ -4,10 +4,10 @@ import {
   budgetStatus,
   cancelBudgetReservation,
   effectiveLimitUsd,
-  monthKeyFromDate,
   normalizeBudgetLedger,
   reconcileBudget,
-  reserveBudget
+  reserveBudget,
+  resolveBudgetMonth
 } from './ai-budget-model.js';
 
 const AI_BUDGET_OBJECT_NAME='global-monthly-budget';
@@ -44,17 +44,20 @@ export class AiBudgetStore extends DurableObject {
     };
   }
 
-  async ledgerFor(now){
+  ledgerLocation({month,now}={}){
     const config=this.config();
-    const month=monthKeyFromDate(now??new Date(),config.timeZone);
-    const key=`ai_budget_ledger:${month}`;
-    const stored=await this.ctx.storage.get(key);
-    const ledger=normalizeBudgetLedger(stored,{month,limitUsd:config.limitUsd});
-    return {key,ledger,config};
+    const resolvedMonth=resolveBudgetMonth({month,now,timeZone:config.timeZone});
+    return {
+      config,
+      month:resolvedMonth,
+      key:`ai_budget_ledger:${resolvedMonth}`
+    };
   }
 
   async status(options={}){
-    const {ledger,config}=await this.ledgerFor(options?.now);
+    const {config,month,key}=this.ledgerLocation(options);
+    const stored=await this.ctx.storage.get(key);
+    const ledger=normalizeBudgetLedger(stored,{month,limitUsd:config.limitUsd});
     return {
       ok:true,
       ...budgetStatus(ledger),
@@ -63,50 +66,47 @@ export class AiBudgetStore extends DurableObject {
     };
   }
 
+  async mutate(locationOptions,mutator){
+    const {config,month,key}=this.ledgerLocation(locationOptions);
+    const receipt=await this.ctx.storage.transaction(async(txn)=>{
+      const stored=await txn.get(key);
+      const ledger=normalizeBudgetLedger(stored,{month,limitUsd:config.limitUsd});
+      const result=mutator(ledger);
+      if(result.ledger!==ledger) await txn.put(key,result.ledger);
+      return result.receipt;
+    });
+    return {
+      ...receipt,
+      timeZone:config.timeZone,
+      hardCapUsd:AI_BUDGET_INTERNAL_HARD_CAP_USD
+    };
+  }
+
   async reserve(input={}){
-    const {key,ledger,config}=await this.ledgerFor(input?.now);
-    const result=reserveBudget(ledger,{
+    return this.mutate({now:input?.now},(ledger)=>reserveBudget(ledger,{
       reservationId:input?.reservationId,
       estimatedUsd:input?.estimatedUsd,
       purpose:input?.purpose,
       createdAt:input?.now
-    });
-    if(result.ledger!==ledger) await this.ctx.storage.put(key,result.ledger);
-    return {
-      ...result.receipt,
-      timeZone:config.timeZone,
-      hardCapUsd:AI_BUDGET_INTERNAL_HARD_CAP_USD
-    };
+    }));
   }
 
   async reconcile(input={}){
-    const {key,ledger,config}=await this.ledgerFor(input?.now);
-    const result=reconcileBudget(ledger,{
+    if(!input?.month) throw new Error('budget_month_required');
+    return this.mutate({month:input.month},(ledger)=>reconcileBudget(ledger,{
       reservationId:input?.reservationId,
       actualUsd:input?.actualUsd,
       responseId:input?.responseId,
       completedAt:input?.now
-    });
-    if(result.ledger!==ledger) await this.ctx.storage.put(key,result.ledger);
-    return {
-      ...result.receipt,
-      timeZone:config.timeZone,
-      hardCapUsd:AI_BUDGET_INTERNAL_HARD_CAP_USD
-    };
+    }));
   }
 
   async cancel(input={}){
-    const {key,ledger,config}=await this.ledgerFor(input?.now);
-    const result=cancelBudgetReservation(ledger,{
+    if(!input?.month) throw new Error('budget_month_required');
+    return this.mutate({month:input.month},(ledger)=>cancelBudgetReservation(ledger,{
       reservationId:input?.reservationId,
       reason:input?.reason,
       cancelledAt:input?.now
-    });
-    if(result.ledger!==ledger) await this.ctx.storage.put(key,result.ledger);
-    return {
-      ...result.receipt,
-      timeZone:config.timeZone,
-      hardCapUsd:AI_BUDGET_INTERNAL_HARD_CAP_USD
-    };
+    }));
   }
 }
