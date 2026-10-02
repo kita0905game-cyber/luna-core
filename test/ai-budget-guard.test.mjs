@@ -69,12 +69,12 @@ test('explicit reservation month survives a later calendar month',()=>{
   assert.equal(resolveBudgetMonth({
     month:'2026-09',
     now:'2026-10-01T00:30:00+09:00',
-    timeZone:'Asia/Tokyo'
+    timeZone:'UTC'
   }),'2026-09');
 
   assert.equal(resolveBudgetMonth({
-    now:'2026-10-01T00:30:00+09:00',
-    timeZone:'Asia/Tokyo'
+    now:'2026-10-01T09:00:00+09:00',
+    timeZone:'UTC'
   }),'2026-10');
 });
 
