@@ -49,7 +49,7 @@ This is 20:05 UTC on the previous calendar day.
 - `MORNING_ENABLED=true`: allows the scheduled foundation run. Default is effectively disabled.
 - `MORNING_ADMIN_TOKEN`: bearer token required for manual runs and reading the latest generated payload.
 - `OPENAI_API_KEY`: secret used by the Responses API gateway.
-- `OPENAI_MODEL`: optional model override. Default: `gpt-5.6-luna`.
+- `OPENAI_MODEL`: optional model override. Default: `gpt-6-luna`.
 
 Secrets must be stored outside the repository and never committed to GitHub.
 
