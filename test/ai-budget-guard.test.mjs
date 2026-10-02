@@ -5,7 +5,7 @@ import { createAiCostGuard } from '../src/ai-budget-guard.js';
 
 function request(overrides={}){
   return {
-    model:'gpt-5.6-luna',
+    model:'gpt-6-luna',
     store:false,
     service_tier:'default',
     reasoning:{effort:'low'},
@@ -101,7 +101,7 @@ test('guard reconciles against the original reservation month after midnight',as
   const result=await guard.reconcile({
     reservationId:'req-1',
     budgetMonth:'2026-09',
-    model:'gpt-5.6-luna',
+    model:'gpt-6-luna',
     usage:{
       input_tokens:500,
       input_tokens_details:{cached_tokens:0},
@@ -153,7 +153,7 @@ test('reconcile and cancel require the original budget month',async()=>{
   await assert.rejects(
     guard.reconcile({
       reservationId:'r',
-      model:'gpt-5.6-luna',
+      model:'gpt-6-luna',
       usage:{input_tokens:1,input_tokens_details:{cached_tokens:0},output_tokens:1}
     }),
     /budget_month_required/
