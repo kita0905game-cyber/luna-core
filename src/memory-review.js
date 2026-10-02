@@ -5,6 +5,8 @@ import {
   reviewMemoryCandidate
 } from './knowledge-store.js';
 import { askLunaForMemoryReview } from './luna-ai.js';
+import { createAiCostGuard } from './ai-budget-guard.js';
+import { AI_BUDGET_OBJECT_NAME } from './ai-budget-model.js';
 
 function clampLimit(value){
   const n=Number(value);
@@ -31,6 +33,7 @@ export async function runMemoryCandidateReview(env,{
   if(!knowledgeConfigured(env)) return {status:'skipped',reason:'knowledge_db_not_configured',reviewed:0};
   if(!manual&&env.LUNA_MEMORY_REVIEW_ENABLED!=='true') return {status:'skipped',reason:'memory_review_disabled',reviewed:0};
   if(!env.OPENAI_API_KEY) return {status:'skipped',reason:'openai_api_key_not_configured',reviewed:0};
+  if(!env.AI_BUDGET) return {status:'skipped',reason:'ai_budget_not_configured',reviewed:0};
 
   const constitution=await getPreferredConstitution(env,{allowDraft:allowDraftConstitution});
   if(!constitution) return {status:'skipped',reason:'constitution_not_available',reviewed:0};
@@ -39,10 +42,21 @@ export async function runMemoryCandidateReview(env,{
   if(candidates.length===0) return {status:'completed',constitutionId:constitution.id,reviewed:0,results:[]};
 
   const results=[];
+  const costGuard=createAiCostGuard(env.AI_BUDGET.getByName(AI_BUDGET_OBJECT_NAME));
   for(const candidate of candidates){
-    const ai=await askLunaForMemoryReview(env,{constitution,candidate,context});
+    const ai=await askLunaForMemoryReview(env,{constitution,candidate,context},{
+      costGuard,
+      reservationId:`memory-review:${candidate.id}:${crypto.randomUUID()}`
+    });
     if(!ai.ok){
-      results.push({id:candidate.id,status:'error',error:ai.error||ai.status});
+      results.push({
+        id:candidate.id,
+        status:'error',
+        error:ai.error||ai.status,
+        aiStatus:ai.status??null,
+        aiUsed:ai.providerCalled===true,
+        budget:ai.budget??null
+      });
       continue;
     }
     const decision=ai.payload?.decision||'observe';
@@ -62,6 +76,7 @@ export async function runMemoryCandidateReview(env,{
       summary:ai.payload?.summary??candidate.summary,
       suggestedMemory:ai.payload?.suggestedMemory??null,
       responseId:ai.responseId??null,
+      budget:ai.budget??null,
       updatedAt:updated?.updated_at??null
     });
   }
