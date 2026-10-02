@@ -1,5 +1,6 @@
 export const AI_BUDGET_SCHEMA_VERSION='luna-ai-budget/v1';
 export const AI_BUDGET_INTERNAL_HARD_CAP_USD=1.8;
+export const AI_BUDGET_OBJECT_NAME='global-monthly-budget';
 export const USD_MICROS=1_000_000;
 const HISTORY_LIMIT=200;
 
@@ -26,7 +27,7 @@ export function effectiveLimitUsd(value){
   return Math.min(n,AI_BUDGET_INTERNAL_HARD_CAP_USD);
 }
 
-export function monthKeyFromDate(value=new Date(),timeZone='Asia/Tokyo'){
+export function monthKeyFromDate(value=new Date(),timeZone='UTC'){
   const date=value instanceof Date?value:new Date(value);
   if(Number.isNaN(date.getTime())) throw new Error('invalid_budget_time');
   const parts=new Intl.DateTimeFormat('en-US',{
@@ -67,7 +68,7 @@ export function normalizeBudgetMonth(value){
   return month;
 }
 
-export function resolveBudgetMonth({month,now,timeZone='Asia/Tokyo'}={}){
+export function resolveBudgetMonth({month,now,timeZone='UTC'}={}){
   return month===undefined||month===null
     ? monthKeyFromDate(now??new Date(),timeZone)
     : normalizeBudgetMonth(month);
