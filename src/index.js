@@ -4,7 +4,7 @@ import { handleQuestRequest } from './quest-routes.js';
 import { handleMorningRequest } from './morning-routes.js';
 import { handleHubRequest } from './hub-routes.js';
 import { handleKnowledgeRequest } from './knowledge-routes.js';
-import { runScheduledMorning } from './morning-runner.js';
+import { runScheduledMorning, runMorningAiSmokeOnce } from './morning-runner.js';
 import { runWeatherRefresh } from './weather-updater.js';
 import { runtimeMetadata } from './runtime-meta.js';
 import { runMemoryCandidateReview } from './memory-review.js';
@@ -54,37 +54,55 @@ export default {
     if(controller.cron==='*/5 * * * *'){
       if(env.LUNA_KNOWLEDGE_SYNC_ENABLED!=='true'){
         console.log(JSON.stringify({event:'LUNA_KNOWLEDGE_SYNC',status:'skipped',reason:'disabled'}));
-        return;
-      }
-      if(!env.KNOWLEDGE_DB){
+      }else if(!env.KNOWLEDGE_DB){
         console.log(JSON.stringify({event:'LUNA_KNOWLEDGE_SYNC',status:'skipped',reason:'knowledge_db_not_configured'}));
-        return;
-      }
-      try{
-        const result=await syncKnowledgeBridge(env);
-        console.log(JSON.stringify({
-          event:'LUNA_KNOWLEDGE_SYNC',
-          cron:controller.cron,
-          scheduledTime:controller.scheduledTime,
-          ...result
-        }));
-        if(env.LUNA_KNOWLEDGE_CUTOVER_SMOKE_ENABLED==='true'){
-          const smoke=await runKnowledgeCutoverSmoke(env);
+      }else{
+        try{
+          const result=await syncKnowledgeBridge(env);
           console.log(JSON.stringify({
-            event:'LUNA_KNOWLEDGE_CUTOVER_SMOKE',
+            event:'LUNA_KNOWLEDGE_SYNC',
+            cron:controller.cron,
+            scheduledTime:controller.scheduledTime,
+            ...result
+          }));
+          if(env.LUNA_KNOWLEDGE_CUTOVER_SMOKE_ENABLED==='true'){
+            const smoke=await runKnowledgeCutoverSmoke(env);
+            console.log(JSON.stringify({
+              event:'LUNA_KNOWLEDGE_CUTOVER_SMOKE',
+              cron:controller.cron,
+              scheduledTime:controller.scheduledTime,
+              ...smoke
+            }));
+          }
+        }catch(error){
+          console.error(JSON.stringify({
+            event:'LUNA_KNOWLEDGE_SYNC',
+            status:'failed',
+            cron:controller.cron,
+            scheduledTime:controller.scheduledTime,
+            error:error instanceof Error?error.message:'knowledge_sync_failed'
+          }));
+        }
+      }
+
+      if(env.MORNING_AI_SMOKE_VERSION){
+        try{
+          const smoke=await runMorningAiSmokeOnce(env,{scheduledTime:controller.scheduledTime});
+          console.log(JSON.stringify({
+            event:'LUNA_MORNING_AI_SMOKE',
             cron:controller.cron,
             scheduledTime:controller.scheduledTime,
             ...smoke
           }));
+        }catch(error){
+          console.error(JSON.stringify({
+            event:'LUNA_MORNING_AI_SMOKE',
+            status:'failed_runner',
+            cron:controller.cron,
+            scheduledTime:controller.scheduledTime,
+            error:error instanceof Error?error.message:'morning_ai_smoke_failed'
+          }));
         }
-      }catch(error){
-        console.error(JSON.stringify({
-          event:'LUNA_KNOWLEDGE_SYNC',
-          status:'failed',
-          cron:controller.cron,
-          scheduledTime:controller.scheduledTime,
-          error:error instanceof Error?error.message:'knowledge_sync_failed'
-        }));
       }
       return;
     }
