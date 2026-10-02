@@ -18,9 +18,9 @@ test('AI budget hard cap cannot be configured above 1.80 USD',()=>{
   assert.equal(effectiveLimitUsd(undefined),1.8);
 });
 
-test('AI budget month rolls over on Asia/Tokyo calendar month',()=>{
-  assert.equal(monthKeyFromDate('2026-09-30T14:59:59.999Z','Asia/Tokyo'),'2026-09');
-  assert.equal(monthKeyFromDate('2026-09-30T15:00:00.000Z','Asia/Tokyo'),'2026-10');
+test('AI budget month rolls over on the OpenAI UTC calendar month',()=>{
+  assert.equal(monthKeyFromDate('2026-09-30T23:59:59.999Z'),'2026-09');
+  assert.equal(monthKeyFromDate('2026-10-01T00:00:00.000Z'),'2026-10');
 });
 
 test('reservations are idempotent and cannot exceed monthly cap',()=>{

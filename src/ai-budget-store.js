@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   AI_BUDGET_INTERNAL_HARD_CAP_USD,
+  AI_BUDGET_OBJECT_NAME,
   budgetStatus,
   cancelBudgetReservation,
   effectiveLimitUsd,
@@ -10,15 +11,13 @@ import {
   resolveBudgetMonth
 } from './ai-budget-model.js';
 
-const AI_BUDGET_OBJECT_NAME='global-monthly-budget';
-
 function normalizeTimeZone(value){
-  const zone=String(value??'Asia/Tokyo').trim()||'Asia/Tokyo';
+  const zone=String(value??'UTC').trim()||'UTC';
   try{
     new Intl.DateTimeFormat('en-US',{timeZone:zone}).format(new Date());
     return zone;
   }catch{
-    return 'Asia/Tokyo';
+    return 'UTC';
   }
 }
 

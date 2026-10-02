@@ -19,45 +19,188 @@ function outputTextFromResponse(response){
   return '';
 }
 
-export async function askLunaForMorning(env,facts){
-  if(!env.OPENAI_API_KEY) return {ok:false,status:'not_configured',error:'OPENAI_API_KEY is not configured'};
-  const model=env.OPENAI_MODEL||'gpt-5.6-luna';
-  const response=await fetch('https://api.openai.com/v1/responses',{
-    method:'POST',
-    headers:{
-      'Authorization':`Bearer ${env.OPENAI_API_KEY}`,
-      'Content-Type':'application/json'
-    },
-    body:JSON.stringify({
-      model,
-      store:false,
-      reasoning:{effort:'low'},
-      instructions:LUNA_MORNING_INSTRUCTIONS,
-      input:JSON.stringify(facts),
-      text:{
-        format:{
-          type:'json_schema',
-          name:'luna_morning_payload',
-          strict:true,
-          schema:MORNING_OUTPUT_SCHEMA
-        }
+export const MORNING_MAX_OUTPUT_TOKENS=1024;
+
+export function buildMorningResponseRequest(env,facts){
+  return {
+    model:env.OPENAI_MODEL||'gpt-5.6-luna',
+    store:false,
+    service_tier:'default',
+    reasoning:{effort:'low'},
+    instructions:LUNA_MORNING_INSTRUCTIONS,
+    input:JSON.stringify(facts),
+    text:{
+      format:{
+        type:'json_schema',
+        name:'luna_morning_payload',
+        strict:true,
+        schema:MORNING_OUTPUT_SCHEMA
       }
-    })
-  });
-  const body=await response.json().catch(()=>null);
+    },
+    max_output_tokens:MORNING_MAX_OUTPUT_TOKENS
+  };
+}
+
+function morningBudgetResult(reservation,settlement=null){
+  return {
+    month:reservation?.budgetMonth??null,
+    estimate:reservation?.estimate??null,
+    reservation:reservation?.budget??null,
+    actual:settlement?.actual??null,
+    settlement:settlement?.budget??null
+  };
+}
+
+export async function askLunaForMorning(env,facts,{
+  costGuard=null,
+  reservationId=null,
+  fetchImpl=fetch
+}={}){
+  if(!env.OPENAI_API_KEY){
+    return {ok:false,status:'not_configured',providerCalled:false,error:'OPENAI_API_KEY is not configured'};
+  }
+  if(!costGuard||typeof costGuard.reserve!=='function'||typeof costGuard.reconcile!=='function'||typeof costGuard.cancel!=='function'){
+    return {ok:false,status:'budget_guard_not_configured',providerCalled:false,error:'AI budget guard is required'};
+  }
+  if(typeof reservationId!=='string'||!reservationId){
+    return {ok:false,status:'reservation_id_required',providerCalled:false,error:'AI budget reservation id is required'};
+  }
+
+  const request=buildMorningResponseRequest(env,facts);
+  let reservation;
+  try{
+    reservation=await costGuard.reserve({
+      reservationId,
+      purpose:'luna-morning',
+      request
+    });
+  }catch(error){
+    return {
+      ok:false,
+      status:'budget_reservation_error',
+      providerCalled:false,
+      error:error instanceof Error?error.message:'AI budget reservation failed'
+    };
+  }
+
+  if(!reservation.ok){
+    return {
+      ok:false,
+      status:'budget_rejected',
+      providerCalled:false,
+      error:reservation?.budget?.reason||'AI budget rejected the request',
+      budget:morningBudgetResult(reservation)
+    };
+  }
+
+  const model=request.model;
+  let response;
+  let body;
+  try{
+    response=await fetchImpl('https://api.openai.com/v1/responses',{
+      method:'POST',
+      headers:{
+        'Authorization':`Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify(request)
+    });
+    body=await response.json().catch(()=>null);
+  }catch(error){
+    // The request may have reached OpenAI, so keep the reservation locked.
+    return {
+      ok:false,
+      status:'transport_error_budget_held',
+      providerCalled:true,
+      budgetHeld:true,
+      error:error instanceof Error?error.message:'OpenAI transport failed',
+      budget:morningBudgetResult(reservation)
+    };
+  }
+
+  let settlement=null;
+  try{
+    if(body?.usage){
+      settlement=await costGuard.reconcile({
+        reservationId,
+        budgetMonth:reservation.budgetMonth,
+        model,
+        usage:body.usage,
+        responseId:body?.id??null
+      });
+    }else if(!response.ok){
+      settlement=await costGuard.cancel({
+        reservationId,
+        budgetMonth:reservation.budgetMonth,
+        reason:`openai_http_${response.status}`
+      });
+    }
+  }catch(error){
+    return {
+      ok:false,
+      status:'budget_settlement_error',
+      providerCalled:true,
+      budgetHeld:true,
+      error:error instanceof Error?error.message:'AI budget settlement failed',
+      responseId:body?.id??null,
+      budget:morningBudgetResult(reservation,settlement)
+    };
+  }
+
+  if(response.ok&&!body?.usage){
+    // Successful provider response without usage is unsafe to release.
+    return {
+      ok:false,
+      status:'usage_missing_budget_held',
+      providerCalled:true,
+      budgetHeld:true,
+      error:'OpenAI response did not contain usage; reservation remains held',
+      responseId:body?.id??null,
+      budget:morningBudgetResult(reservation)
+    };
+  }
+
   if(!response.ok){
     return {
       ok:false,
       status:'api_error',
-      error:body?.error?.message||`OpenAI API returned ${response.status}`
+      providerCalled:true,
+      error:body?.error?.message||`OpenAI API returned ${response.status}`,
+      responseId:body?.id??null,
+      budget:morningBudgetResult(reservation,settlement)
     };
   }
+
   const text=outputTextFromResponse(body);
-  if(!text) return {ok:false,status:'empty_response',error:'OpenAI response contained no output text'};
+  if(!text){
+    return {
+      ok:false,
+      status:'empty_response',
+      providerCalled:true,
+      error:'OpenAI response contained no output text',
+      responseId:body?.id??null,
+      budget:morningBudgetResult(reservation,settlement)
+    };
+  }
   try{
-    return {ok:true,status:'completed',model,payload:JSON.parse(text),responseId:body?.id??null};
+    return {
+      ok:true,
+      status:'completed',
+      providerCalled:true,
+      model,
+      payload:JSON.parse(text),
+      responseId:body?.id??null,
+      budget:morningBudgetResult(reservation,settlement)
+    };
   }catch{
-    return {ok:false,status:'invalid_json',error:'OpenAI response was not valid JSON'};
+    return {
+      ok:false,
+      status:'invalid_json',
+      providerCalled:true,
+      error:'OpenAI response was not valid JSON',
+      responseId:body?.id??null,
+      budget:morningBudgetResult(reservation,settlement)
+    };
   }
 }
 

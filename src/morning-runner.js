@@ -1,14 +1,20 @@
 import { askLunaForMorning } from './luna-ai.js';
 import { MORNING_VERSION, morningDateJst, morningGeneratedAtJst } from './morning-model.js';
+import { createAiCostGuard } from './ai-budget-guard.js';
+import { AI_BUDGET_OBJECT_NAME } from './ai-budget-model.js';
 
 const MORNING_OBJECT_NAME='morning-v1';
 const morningStore=(env)=>env.QUEST_STATE.getByName(MORNING_OBJECT_NAME);
+const morningCostGuard=(env)=>env.AI_BUDGET?createAiCostGuard(env.AI_BUDGET.getByName(AI_BUDGET_OBJECT_NAME)):null;
 
 export function morningConfig(env){
   return {
     version:MORNING_VERSION,
     enabled:env.MORNING_ENABLED==='true',
     aiConfigured:Boolean(env.OPENAI_API_KEY),
+    budgetConfigured:Boolean(env.AI_BUDGET),
+    budgetLimitUsd:Number(env.AI_BUDGET_INTERNAL_LIMIT_USD||1.8),
+    budgetTimeZone:env.AI_BUDGET_TIME_ZONE||'UTC',
     model:env.OPENAI_MODEL||'gpt-5.6-luna',
     publishConfigured:false,
     collectors:{
@@ -102,6 +108,9 @@ export async function runMorning(env,{
       date,
       generated_at:morningGeneratedAtJst(),
       facts
+    },{
+      costGuard:morningCostGuard(env),
+      reservationId:`morning:${runId}`
     });
     if(!ai.ok){
       const failed={
@@ -111,10 +120,11 @@ export async function runMorning(env,{
         date,
         startedAt,
         finishedAt:new Date().toISOString(),
-        aiUsed:true,
+        aiUsed:ai.providerCalled===true,
         published:false,
         error:ai.error,
-        aiStatus:ai.status
+        aiStatus:ai.status,
+        budget:ai.budget??null
       };
       await store.recordMorningRun(failed);
       return failed;
@@ -131,6 +141,7 @@ export async function runMorning(env,{
       error:null,
       model:ai.model,
       responseId:ai.responseId,
+      budget:ai.budget??null,
       payload:ai.payload
     };
     await store.recordMorningRun(completed);
