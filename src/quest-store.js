@@ -150,6 +150,49 @@ export class QuestStateStore extends DurableObject {
       recentRuns:history.slice(0,5)
     };
   }
+  async claimMorningAiSmoke(version){
+    const id=String(version??'').trim().slice(0,80);
+    if(!id) throw new Error('morning_ai_smoke_version_required');
+    const key=`morning_ai_smoke:${id}`;
+    const existing=await this.ctx.storage.get(key);
+    if(existing) return {claimed:false,...existing};
+    const claim={
+      version:id,
+      status:'claimed',
+      claimedAt:new Date().toISOString()
+    };
+    await this.ctx.storage.put(key,claim);
+    return {claimed:true,...claim};
+  }
+
+  async completeMorningAiSmoke(version,result={}){
+    const id=String(version??'').trim().slice(0,80);
+    if(!id) throw new Error('morning_ai_smoke_version_required');
+    const key=`morning_ai_smoke:${id}`;
+    const current=(await this.ctx.storage.get(key))??{version:id,claimedAt:null};
+    const value={
+      ...current,
+      version:id,
+      status:result?.status??'unknown',
+      aiUsed:Boolean(result?.aiUsed),
+      error:result?.error??null,
+      model:result?.model??null,
+      responseId:result?.responseId??null,
+      budgetMonth:result?.budget?.month??null,
+      actualUsd:result?.budget?.actual?.actualUsd??null,
+      remainingUsd:result?.budget?.settlement?.remainingUsd??result?.budget?.reservation?.remainingUsd??null,
+      finishedAt:new Date().toISOString()
+    };
+    await this.ctx.storage.put(key,value);
+    return value;
+  }
+
+  async morningAiSmokeStatus(version){
+    const id=String(version??'').trim().slice(0,80);
+    if(!id) return null;
+    return (await this.ctx.storage.get(`morning_ai_smoke:${id}`))??null;
+  }
+
   async hubStoredState(){
     const currentV2=await this.ctx.storage.get('hub_current_v2');
     if(currentV2) return normalizeHubState(currentV2);
