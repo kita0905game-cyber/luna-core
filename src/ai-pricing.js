@@ -3,9 +3,7 @@
 // All prices are USD per million tokens, standard processing, short context.
 export const AI_PRICE_TABLE_REVIEWED_AT='2026-10-02';
 export const AI_TEXT_PRICE_USD_PER_MILLION=Object.freeze({
-  'gpt-5.6-luna':Object.freeze({input:0.20,cachedInput:0.02,cacheWrite:0.25,output:1.20}),
-  'gpt-5.6-terra':Object.freeze({input:2.00,cachedInput:0.20,cacheWrite:2.50,output:12.00}),
-  'gpt-5.6-sol':Object.freeze({input:4.00,cachedInput:0.40,cacheWrite:5.00,output:20.00})
+  'gpt-6-luna':Object.freeze({input:0.10,cachedInput:0.01,cacheWrite:0.125,output:0.50})
 });
 
 export const AI_MAX_REQUEST_BYTES=32*1024;

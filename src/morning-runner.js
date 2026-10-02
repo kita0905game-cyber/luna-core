@@ -15,7 +15,7 @@ export function morningConfig(env){
     budgetConfigured:Boolean(env.AI_BUDGET),
     budgetLimitUsd:Number(env.AI_BUDGET_INTERNAL_LIMIT_USD||1.8),
     budgetTimeZone:env.AI_BUDGET_TIME_ZONE||'UTC',
-    model:env.OPENAI_MODEL||'gpt-5.6-luna',
+    model:env.OPENAI_MODEL||'gpt-6-luna',
     publishConfigured:false,
     collectors:{
       calendar:false,

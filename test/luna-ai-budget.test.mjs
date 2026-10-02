@@ -43,12 +43,12 @@ function fakeGuard({reserveOk=true}={}){
 }
 
 function env(){
-  return {OPENAI_API_KEY:'test-key',OPENAI_MODEL:'gpt-5.6-luna'};
+  return {OPENAI_API_KEY:'test-key',OPENAI_MODEL:'gpt-6-luna'};
 }
 
 test('morning request is bounded and standard-tier for budget estimation',()=>{
   const request=buildMorningResponseRequest(env(),{date:'2026-10-02',facts:{weather:'sunny'}});
-  assert.equal(request.model,'gpt-5.6-luna');
+  assert.equal(request.model,'gpt-6-luna');
   assert.equal(request.store,false);
   assert.equal(request.service_tier,'default');
   assert.equal(request.max_output_tokens,MORNING_MAX_OUTPUT_TOKENS);
