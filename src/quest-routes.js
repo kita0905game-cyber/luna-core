@@ -1,4 +1,5 @@
 import { validateLegacyGame, sha256Text, sha256Json } from './quest-model.js';
+import { questAiConfig, runQuestWorldGm } from './quest-ai.js';
 
 const QUEST_OBJECT_NAME='primary';
 const MIGRATION_TOKEN_SHA256='f68b243c55704de21b3187a174d9c657fb50b80143f37963a1a15cd282d0e5d3';
@@ -136,6 +137,33 @@ export async function handleQuestRequest(request,env){
   if(url.pathname==='/quest'){
     const state=await questStore(env).activeStateMeta();
     return questJson({ok:true,service:'LUNA CORE',module:'LIFE QUEST',status:state.active?'operational':'migration-pending',message:state.active?'LIFE QUEST is operational on LUNA CORE.':'LIFE QUEST game-state migration is pending.',time:new Date().toISOString()});
+  }
+  if(url.pathname==='/quest/ai/status'&&request.method==='GET'){
+    const config=questAiConfig(env);
+    return questJson({
+      ok:true,
+      service:'LUNA CORE',
+      module:'LIFE QUEST',
+      feature:'API Luna World GM',
+      config,
+      time:new Date().toISOString()
+    });
+  }
+  if(url.pathname==='/quest/ai/evaluate'&&request.method==='POST'){
+    if(!(await verifyQuestClient(request,env))) return questJson({ok:false,error:'unauthorized'},{status:401});
+    const body=await request.json().catch(()=>({}));
+    const result=await runQuestWorldGm(env,{
+      eventId:typeof body?.eventId==='string'&&body.eventId?body.eventId:null,
+      context:body?.context??null
+    });
+    return questJson({
+      ok:result.ok!==false,
+      service:'LUNA CORE',
+      module:'LIFE QUEST',
+      feature:'API Luna World GM',
+      result,
+      time:new Date().toISOString()
+    },{status:result.ok===false?503:200});
   }
   if(url.pathname==='/quest/migration/status'){
     const migration=await questStore(env).migrationStatus(); return questJson({ok:migration?.status==='active',service:'LUNA CORE',module:'LIFE QUEST',migration,time:new Date().toISOString()});
