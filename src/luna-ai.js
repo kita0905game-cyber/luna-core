@@ -23,7 +23,7 @@ export const MORNING_MAX_OUTPUT_TOKENS=1024;
 
 export function buildMorningResponseRequest(env,facts){
   return {
-    model:env.OPENAI_MODEL||'gpt-5.6-luna',
+    model:env.OPENAI_MODEL||'gpt-6-luna',
     store:false,
     service_tier:'default',
     reasoning:{effort:'low'},
@@ -221,7 +221,7 @@ export const MEMORY_REVIEW_SCHEMA={
 export async function askLunaForMemoryReview(env,{constitution,candidate,context=null}){
   if(!env.OPENAI_API_KEY) return {ok:false,status:'not_configured',error:'OPENAI_API_KEY is not configured'};
   if(!constitution?.body_md) return {ok:false,status:'constitution_missing',error:'Constitution is required'};
-  const model=env.OPENAI_MODEL||'gpt-5.6-luna';
+  const model=env.OPENAI_MODEL||'gpt-6-luna';
   const instructions=[
     'You are API Luna, a background reasoning runtime for LUNA CORE.',
     'Follow the supplied LUNA Constitution as your behavioral authority.',
