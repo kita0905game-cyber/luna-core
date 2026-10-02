@@ -61,8 +61,20 @@ function trimHistory(history){
   return Array.isArray(history)?history.slice(-HISTORY_LIMIT):[];
 }
 
+export function normalizeBudgetMonth(value){
+  const month=String(value??'').trim();
+  if(!/^\d{4}-\d{2}$/.test(month)) throw new Error('invalid_budget_month');
+  return month;
+}
+
+export function resolveBudgetMonth({month,now,timeZone='Asia/Tokyo'}={}){
+  return month===undefined||month===null
+    ? monthKeyFromDate(now??new Date(),timeZone)
+    : normalizeBudgetMonth(month);
+}
+
 export function createBudgetLedger({month,limitUsd=AI_BUDGET_INTERNAL_HARD_CAP_USD}){
-  if(typeof month!=='string'||!/^\d{4}-\d{2}$/.test(month)) throw new Error('invalid_budget_month');
+  month=normalizeBudgetMonth(month);
   return {
     schemaVersion:AI_BUDGET_SCHEMA_VERSION,
     month,
