@@ -4,7 +4,7 @@ import { handleQuestRequest } from './quest-routes.js';
 import { handleMorningRequest } from './morning-routes.js';
 import { handleHubRequest } from './hub-routes.js';
 import { handleKnowledgeRequest } from './knowledge-routes.js';
-import { runScheduledMorning, runMorningAiSmokeOnce } from './morning-runner.js';
+import { runScheduledMorning } from './morning-runner.js';
 import { runWeatherRefresh } from './weather-updater.js';
 import { runtimeMetadata } from './runtime-meta.js';
 import { runMemoryCandidateReview } from './memory-review.js';
@@ -81,26 +81,6 @@ export default {
             cron:controller.cron,
             scheduledTime:controller.scheduledTime,
             error:error instanceof Error?error.message:'knowledge_sync_failed'
-          }));
-        }
-      }
-
-      if(env.MORNING_AI_SMOKE_VERSION){
-        try{
-          const smoke=await runMorningAiSmokeOnce(env,{scheduledTime:controller.scheduledTime});
-          console.log(JSON.stringify({
-            event:'LUNA_MORNING_AI_SMOKE',
-            cron:controller.cron,
-            scheduledTime:controller.scheduledTime,
-            ...smoke
-          }));
-        }catch(error){
-          console.error(JSON.stringify({
-            event:'LUNA_MORNING_AI_SMOKE',
-            status:'failed_runner',
-            cron:controller.cron,
-            scheduledTime:controller.scheduledTime,
-            error:error instanceof Error?error.message:'morning_ai_smoke_failed'
           }));
         }
       }
