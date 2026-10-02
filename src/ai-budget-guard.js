@@ -1,4 +1,3 @@
-import { aiBudgetStore } from './ai-budget-store.js';
 import {
   calculateTextResponseCost,
   estimateTextResponseCost
@@ -85,6 +84,3 @@ export function createAiCostGuard(store){
   };
 }
 
-export function aiCostGuard(env){
-  return createAiCostGuard(aiBudgetStore(env));
-}
