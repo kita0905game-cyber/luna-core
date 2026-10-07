@@ -12,10 +12,14 @@ import {
 } from './knowledge-store.js';
 
 const MCP_NAME='luna-core';
-const MCP_VERSION='0.1.0';
+const MCP_VERSION='0.1.1';
 const toText=(value)=>JSON.stringify(value,null,2);
 const ok=(value)=>({content:[{type:'text',text:toText(value)}],structuredContent:value});
 const fail=(error)=>({isError:true,content:[{type:'text',text:toText({ok:false,error:error instanceof Error?error.message:'mcp_error'})}]});
+
+function writeEnabled(env){
+  return env.LUNA_MCP_WRITE_ENABLED==='true';
+}
 
 function createLunaMcpServer(env){
   const server=new McpServer({name:MCP_NAME,version:MCP_VERSION});
@@ -77,40 +81,42 @@ function createLunaMcpServer(env){
     }catch(error){return fail(error);}
   });
 
-  server.registerTool('create_memory_candidate',{
-    description:'Create an observing memory candidate in canonical D1. This does not formally promote anything into Second Brain and is the preferred low-risk write for newly learned user-specific information.',
-    inputSchema:z.object({
-      summary:z.string().min(1).max(4000),
-      domain:z.string().min(1).max(120).optional(),
-      sourceType:z.enum(['user_statement','luna_analysis','journal','health','study','other']).optional(),
-      confidence:z.number().min(0).max(1).optional(),
-      evidence:z.array(z.string().max(1000)).max(20).optional(),
-      reviewReason:z.string().max(500).optional()
-    }),
-    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
-  },async(input)=>{
-    try{return ok({ok:true,candidate:await createMemoryCandidate(env,{...input,status:'observing'})});}
-    catch(error){return fail(error);}
-  });
+  if(writeEnabled(env)){
+    server.registerTool('create_memory_candidate',{
+      description:'Create an observing memory candidate in canonical D1. This does not formally promote anything into Second Brain and is the preferred low-risk write for newly learned user-specific information.',
+      inputSchema:z.object({
+        summary:z.string().min(1).max(4000),
+        domain:z.string().min(1).max(120).optional(),
+        sourceType:z.enum(['user_statement','luna_analysis','journal','health','study','other']).optional(),
+        confidence:z.number().min(0).max(1).optional(),
+        evidence:z.array(z.string().max(1000)).max(20).optional(),
+        reviewReason:z.string().max(500).optional()
+      }),
+      annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+    },async(input)=>{
+      try{return ok({ok:true,candidate:await createMemoryCandidate(env,{...input,status:'observing'})});}
+      catch(error){return fail(error);}
+    });
 
-  server.registerTool('upsert_knowledge_document',{
-    description:'Create or update one canonical LUNA knowledge document directly in D1 with optimistic version checking. This is an authoritative write. Use only when the user explicitly intends to change formal LUNA knowledge. expectedVersion is mandatory: 0 for a new document, or the exact current version for an update.',
-    inputSchema:z.object({
-      id:z.string().min(1).max(160),
-      kind:z.enum(['constitution','second_brain','system_spec','bootstrap']),
-      title:z.string().min(1).max(240),
-      bodyMd:z.string().min(1),
-      status:z.enum(['draft','active','archived']),
-      expectedVersion:z.number().int().min(0),
-      source:z.string().max(120).optional(),
-      sourceRef:z.string().max(500).optional(),
-      summary:z.string().max(500).optional()
-    }),
-    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}
-  },async(input)=>{
-    try{return ok({ok:true,document:await upsertDocument(env,input,{actor:'chatgpt-mcp'})});}
-    catch(error){return fail(error);}
-  });
+    server.registerTool('upsert_knowledge_document',{
+      description:'Create or update one canonical LUNA knowledge document directly in D1 with optimistic version checking. This is an authoritative write. Use only when the user explicitly intends to change formal LUNA knowledge. expectedVersion is mandatory: 0 for a new document, or the exact current version for an update.',
+      inputSchema:z.object({
+        id:z.string().min(1).max(160),
+        kind:z.enum(['constitution','second_brain','system_spec','bootstrap']),
+        title:z.string().min(1).max(240),
+        bodyMd:z.string().min(1),
+        status:z.enum(['draft','active','archived']),
+        expectedVersion:z.number().int().min(0),
+        source:z.string().max(120).optional(),
+        sourceRef:z.string().max(500).optional(),
+        summary:z.string().max(500).optional()
+      }),
+      annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}
+    },async(input)=>{
+      try{return ok({ok:true,document:await upsertDocument(env,input,{actor:'chatgpt-mcp'})});}
+      catch(error){return fail(error);}
+    });
+  }
 
   return server;
 }
@@ -123,10 +129,12 @@ export async function handleMcpRequest(request,env,ctx){
     return Response.json({ok:false,error:'luna_mcp_disabled'},{status:503,headers:{'Cache-Control':'no-store'}});
   }
 
-  // Safety boundary: production /mcp must be protected by Cloudflare Access for SaaS.
-  // Keep LUNA_MCP_ENABLED=false until Access protection is configured.
-  if(!request.headers.get('Cf-Access-Jwt-Assertion')){
+  const authMode=env.LUNA_MCP_AUTH_MODE||'access';
+  if(authMode==='access'&&!request.headers.get('Cf-Access-Jwt-Assertion')){
     return Response.json({ok:false,error:'cloudflare_access_required'},{status:401,headers:{'Cache-Control':'no-store'}});
+  }
+  if(!['none','access'].includes(authMode)){
+    return Response.json({ok:false,error:'invalid_mcp_auth_mode'},{status:503,headers:{'Cache-Control':'no-store'}});
   }
 
   const handler=createMcpHandler(()=>createLunaMcpServer(env));
