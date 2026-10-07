@@ -12,7 +12,7 @@ import {
 } from './knowledge-store.js';
 
 const MCP_NAME='luna-core';
-const MCP_VERSION='0.1.1';
+const MCP_VERSION='0.1.2';
 const toText=(value)=>JSON.stringify(value,null,2);
 const ok=(value)=>({content:[{type:'text',text:toText(value)}],structuredContent:value});
 const fail=(error)=>({isError:true,content:[{type:'text',text:toText({ok:false,error:error instanceof Error?error.message:'mcp_error'})}]});
@@ -21,17 +21,19 @@ function writeEnabled(env){
   return env.LUNA_MCP_WRITE_ENABLED==='true';
 }
 
-function createLunaMcpServer(env){
+function createLunaMcpServer(env,{publicOnly=false}={}){
   const server=new McpServer({name:MCP_NAME,version:MCP_VERSION});
 
   server.registerTool('knowledge_status',{
-    description:'Read LUNA CORE canonical D1 knowledge status. Use this before relying on Second Brain data.',
+    description:'Read non-sensitive LUNA CORE canonical D1 knowledge status for connectivity verification.',
     inputSchema:z.object({}),
     annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}
   },async()=>{
     try{return ok({ok:true,status:await knowledgeStatus(env),time:new Date().toISOString()});}
     catch(error){return fail(error);}
   });
+
+  if(publicOnly) return server;
 
   server.registerTool('get_active_constitution',{
     description:'Read the currently active LUNA Constitution directly from canonical D1.',
@@ -58,7 +60,7 @@ function createLunaMcpServer(env){
   });
 
   server.registerTool('search_knowledge',{
-    description:'Search canonical LUNA knowledge directly in D1 by text. Prefer this over Airtable Knowledge Bridge for Second Brain lookup.',
+    description:'Search canonical LUNA knowledge directly in D1 by text.',
     inputSchema:z.object({
       query:z.string().min(1).max(500),
       kind:z.enum(['constitution','second_brain','system_spec','bootstrap']).optional(),
@@ -83,7 +85,7 @@ function createLunaMcpServer(env){
 
   if(writeEnabled(env)){
     server.registerTool('create_memory_candidate',{
-      description:'Create an observing memory candidate in canonical D1. This does not formally promote anything into Second Brain and is the preferred low-risk write for newly learned user-specific information.',
+      description:'Create an observing memory candidate in canonical D1. This does not formally promote anything into Second Brain.',
       inputSchema:z.object({
         summary:z.string().min(1).max(4000),
         domain:z.string().min(1).max(120).optional(),
@@ -99,7 +101,7 @@ function createLunaMcpServer(env){
     });
 
     server.registerTool('upsert_knowledge_document',{
-      description:'Create or update one canonical LUNA knowledge document directly in D1 with optimistic version checking. This is an authoritative write. Use only when the user explicitly intends to change formal LUNA knowledge. expectedVersion is mandatory: 0 for a new document, or the exact current version for an update.',
+      description:'Create or update one canonical LUNA knowledge document directly in D1 with mandatory optimistic version checking.',
       inputSchema:z.object({
         id:z.string().min(1).max(160),
         kind:z.enum(['constitution','second_brain','system_spec','bootstrap']),
@@ -130,13 +132,13 @@ export async function handleMcpRequest(request,env,ctx){
   }
 
   const authMode=env.LUNA_MCP_AUTH_MODE||'access';
-  if(authMode==='access'&&!request.headers.get('Cf-Access-Jwt-Assertion')){
-    return Response.json({ok:false,error:'cloudflare_access_required'},{status:401,headers:{'Cache-Control':'no-store'}});
-  }
   if(!['none','access'].includes(authMode)){
     return Response.json({ok:false,error:'invalid_mcp_auth_mode'},{status:503,headers:{'Cache-Control':'no-store'}});
   }
+  if(authMode==='access'&&!request.headers.get('Cf-Access-Jwt-Assertion')){
+    return Response.json({ok:false,error:'cloudflare_access_required'},{status:401,headers:{'Cache-Control':'no-store'}});
+  }
 
-  const handler=createMcpHandler(()=>createLunaMcpServer(env));
+  const handler=createMcpHandler(()=>createLunaMcpServer(env,{publicOnly:authMode==='none'}));
   return handler(request,env,ctx);
 }
