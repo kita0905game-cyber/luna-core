@@ -8,5 +8,10 @@
     "deploy": "node scripts/write-build-meta.mjs && npx wrangler@4 deploy",
     "check": "for f in src/*.js; do node --check \"$f\" || exit 1; done && npm test",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.20.1",
+    "zod": "^4.4.3"
   }
 }
