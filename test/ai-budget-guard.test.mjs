@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveBudgetMonth } from '../src/ai-budget-model.js';
-import { createAiCostGuard } from '../src/ai-budget-guard.js';
+import { createAiCostGuard, isAiPurposeAllowed } from '../src/ai-budget-guard.js';
 
 function request(overrides={}){
   return {
@@ -78,12 +78,30 @@ test('explicit reservation month survives a later calendar month',()=>{
   }),'2026-10');
 });
 
-test('guard reserves conservative estimate before provider call',async()=>{
+test('only diary summaries are permitted to reserve AI budget',async()=>{
+  assert.equal(isAiPurposeAllowed('diary-summary'),true);
+  assert.equal(isAiPurposeAllowed('lq-world-gm'),false);
+  assert.equal(isAiPurposeAllowed('luna-morning'),false);
+  assert.equal(isAiPurposeAllowed('memory-review'),false);
+
+  const store=fakeStore();
+  const guard=createAiCostGuard(store);
+  const rejected=await guard.reserve({
+    reservationId:'blocked-1',
+    purpose:'lq-world-gm',
+    request:request()
+  });
+  assert.equal(rejected.ok,false);
+  assert.equal(rejected.status,'purpose_not_allowed');
+  assert.equal(store.calls.length,0);
+});
+
+test('guard reserves conservative estimate for diary summary before provider call',async()=>{
   const store=fakeStore();
   const guard=createAiCostGuard(store);
   const result=await guard.reserve({
     reservationId:'req-1',
-    purpose:'lq-world-gm',
+    purpose:'diary-summary',
     request:request(),
     now:'2026-09-30T23:59:59+09:00'
   });
@@ -137,11 +155,11 @@ test('guard fails closed before touching the ledger for unknown model or unbound
   const guard=createAiCostGuard(store);
 
   await assert.rejects(
-    guard.reserve({reservationId:'bad-model',purpose:'test',request:request({model:'gpt-unknown'})}),
+    guard.reserve({reservationId:'bad-model',purpose:'diary-summary',request:request({model:'gpt-unknown'})}),
     /ai_price_unknown_model/
   );
   await assert.rejects(
-    guard.reserve({reservationId:'no-cap',purpose:'test',request:request({max_output_tokens:undefined})}),
+    guard.reserve({reservationId:'no-cap',purpose:'diary-summary',request:request({max_output_tokens:undefined})}),
     /ai_output_limit_required/
   );
   assert.equal(store.calls.length,0);
