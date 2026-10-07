@@ -10,6 +10,7 @@ import { runtimeMetadata } from './runtime-meta.js';
 import { runMemoryCandidateReview } from './memory-review.js';
 import { syncKnowledgeBridge } from './knowledge-migration.js';
 import { runKnowledgeCutoverSmoke } from './knowledge-cutover-smoke.js';
+import { runDiarySummary } from './diary-summary.js';
 export { QuestStateStore, AiBudgetStore };
 
 export default {
@@ -25,6 +26,30 @@ export default {
   async scheduled(controller,env){
     if(controller.cron==='5 20 * * *'){
       await runScheduledMorning(controller,env);
+      return;
+    }
+
+    if(controller.cron==='15 3 * * *'){
+      try{
+        const result=await runDiarySummary(env,{
+          scheduledTime:controller.scheduledTime,
+          limit:Number(env.DIARY_SUMMARY_BACKFILL_LIMIT||10)
+        });
+        console.log(JSON.stringify({
+          event:'LUNA_DIARY_SUMMARY',
+          cron:controller.cron,
+          scheduledTime:controller.scheduledTime,
+          ...result
+        }));
+      }catch(error){
+        console.error(JSON.stringify({
+          event:'LUNA_DIARY_SUMMARY',
+          status:'failed',
+          cron:controller.cron,
+          scheduledTime:controller.scheduledTime,
+          error:error instanceof Error?error.message:'diary_summary_failed'
+        }));
+      }
       return;
     }
 

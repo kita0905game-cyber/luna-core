@@ -3,6 +3,8 @@ import {
   estimateTextResponseCost
 } from './ai-pricing.js';
 
+const ALLOWED_AI_PURPOSES=new Set(['diary-summary']);
+
 function assertStore(store){
   if(!store||typeof store.reserve!=='function'||typeof store.reconcile!=='function'||typeof store.cancel!=='function'){
     throw new Error('ai_budget_store_invalid');
@@ -16,11 +18,25 @@ function requireBudgetMonth(value){
   return month;
 }
 
+export function isAiPurposeAllowed(purpose){
+  return ALLOWED_AI_PURPOSES.has(String(purpose??'').trim());
+}
+
 export function createAiCostGuard(store){
   const budget=assertStore(store);
 
   return {
     async reserve({reservationId,purpose,request,now}){
+      if(!isAiPurposeAllowed(purpose)){
+        return {
+          ok:false,
+          status:'purpose_not_allowed',
+          reservationId,
+          budgetMonth:null,
+          estimate:null,
+          budget:{ok:false,status:'rejected',reason:'purpose_not_allowed'}
+        };
+      }
       const estimate=estimateTextResponseCost(request);
       const receipt=await budget.reserve({
         reservationId,
@@ -83,4 +99,3 @@ export function createAiCostGuard(store){
     }
   };
 }
-
