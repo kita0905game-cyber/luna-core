@@ -11,6 +11,7 @@
   "triggers": {
     "crons": [
       "5 20 * * *",
+      "15 3 * * *",
       "10,40 * * * *",
       "20 18 * * *",
       "*/5 * * * *"
@@ -54,6 +55,8 @@
     "AI_BUDGET_INTERNAL_LIMIT_USD": "1.80",
     "AI_BUDGET_TIME_ZONE": "UTC",
     "OPENAI_MODEL": "gpt-6-luna",
-    "LQ_AI_ENABLED": "false"
+    "LQ_AI_ENABLED": "false",
+    "DIARY_SUMMARY_ENABLED": "true",
+    "DIARY_SUMMARY_BACKFILL_LIMIT": "10"
   }
 }
