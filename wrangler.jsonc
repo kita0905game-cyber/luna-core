@@ -19,25 +19,13 @@
   },
   "durable_objects": {
     "bindings": [
-      {
-        "name": "QUEST_STATE",
-        "class_name": "QuestStateStore"
-      },
-      {
-        "name": "AI_BUDGET",
-        "class_name": "AiBudgetStore"
-      }
+      {"name":"QUEST_STATE","class_name":"QuestStateStore"},
+      {"name":"AI_BUDGET","class_name":"AiBudgetStore"}
     ]
   },
   "exports": {
-    "QuestStateStore": {
-      "type": "durable-object",
-      "storage": "sqlite"
-    },
-    "AiBudgetStore": {
-      "type": "durable-object",
-      "storage": "sqlite"
-    }
+    "QuestStateStore": {"type":"durable-object","storage":"sqlite"},
+    "AiBudgetStore": {"type":"durable-object","storage":"sqlite"}
   },
   "d1_databases": [
     {
@@ -52,7 +40,9 @@
     "KNOWLEDGE_AIRTABLE_TABLE_ID": "tblbv3WM7V0XYa7vc",
     "LUNA_KNOWLEDGE_SYNC_ENABLED": "true",
     "LUNA_KNOWLEDGE_CUTOVER_SMOKE_ENABLED": "false",
-    "LUNA_MCP_ENABLED": "false",
+    "LUNA_MCP_ENABLED": "true",
+    "LUNA_MCP_AUTH_MODE": "none",
+    "LUNA_MCP_WRITE_ENABLED": "false",
     "AI_BUDGET_INTERNAL_LIMIT_USD": "1.80",
     "AI_BUDGET_TIME_ZONE": "UTC",
     "OPENAI_MODEL": "gpt-6-luna",
