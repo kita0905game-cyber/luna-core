@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npx wrangler@4 dev --test-scheduled",
-    "deploy": "node scripts/write-build-meta.mjs && npx wrangler@4 deploy",
+    "dev": "npx wrangler@4.148.0 dev --test-scheduled",
+    "deploy": "node scripts/write-build-meta.mjs && npx wrangler@4.148.0 deploy",
     "check": "for f in src/*.js; do node --check \"$f\" || exit 1; done && npm test",
     "test": "node --test test/*.test.mjs"
   },
