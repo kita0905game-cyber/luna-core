@@ -78,12 +78,13 @@ export async function listDocuments(env,{kind=null,status=null,limit=20}={}){
   return result?.results||[];
 }
 
-export async function searchDocuments(env,query,{kind=null,limit=20}={}){
+export async function searchDocuments(env,query,{kind=null,status=null,limit=20}={}){
   if(!knowledgeConfigured(env)) return [];
   const q=String(query??'').trim();
   if(!q) return [];
   const where=['(title LIKE ? OR body_md LIKE ?)'],bind=[`%${q}%`,`%${q}%`];
   if(kind){const k=normalizeKind(kind);if(!k) throw new Error('invalid_kind');where.push('kind=?');bind.push(k);}
+  if(status){const s=normalizeStatus(status);if(!s) throw new Error('invalid_status');where.push('status=?');bind.push(s);}
   bind.push(clampLimit(limit));
   const result=await env.KNOWLEDGE_DB.prepare(
     'SELECT id,kind,title,status,version,source,source_ref,content_sha256,updated_at FROM knowledge_documents WHERE '
@@ -108,6 +109,7 @@ function validateDocumentInput(input){
     source:input?.source?String(input.source).slice(0,120):null,
     sourceRef:input?.sourceRef?String(input.sourceRef).slice(0,500):null,
     expectedVersion:Number.isInteger(input?.expectedVersion)?input.expectedVersion:null,
+    expectedHash:input?.expectedHash,
     summary:input?.summary?String(input.summary).slice(0,500):null
   };
 }
@@ -118,6 +120,7 @@ export async function upsertDocument(env,input,{actor='luna-core',action=null}={
   const current=await getDocument(env,doc.id);
   if(current&&doc.expectedVersion!==null&&doc.expectedVersion!==current.version) throw new Error('version_conflict');
   if(!current&&doc.expectedVersion!==null&&doc.expectedVersion!==0) throw new Error('version_conflict');
+  if(doc.expectedHash!==undefined&&doc.expectedHash!==(current?.content_sha256??null)) throw new Error('version_conflict');
 
   const timestamp=nowIso();
   const hash=await sha256Text(doc.bodyMd);
@@ -136,24 +139,32 @@ export async function upsertDocument(env,input,{actor='luna-core',action=null}={
   const docStmt=env.KNOWLEDGE_DB.prepare(
     `INSERT INTO knowledge_documents
       (id,kind,title,body_md,status,version,source,source_ref,content_sha256,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)
+     SELECT ?,?,?,?,?,?,?,?,?,?,?
+     WHERE ?=0 OR EXISTS (SELECT 1 FROM knowledge_documents WHERE id=?)
      ON CONFLICT(id) DO UPDATE SET
       kind=excluded.kind,title=excluded.title,body_md=excluded.body_md,status=excluded.status,
       version=excluded.version,source=excluded.source,source_ref=excluded.source_ref,
-      content_sha256=excluded.content_sha256,updated_at=excluded.updated_at`
+      content_sha256=excluded.content_sha256,updated_at=excluded.updated_at
+     WHERE knowledge_documents.version=? AND knowledge_documents.content_sha256=?`
   ).bind(
     doc.id,doc.kind,doc.title,doc.bodyMd,doc.status,nextVersion,doc.source,doc.sourceRef,hash,
-    current?.created_at||timestamp,timestamp
+    current?.created_at||timestamp,timestamp,
+    current?.version??0,doc.id,current?.version??0,current?.content_sha256??null
   );
 
   const changeStmt=env.KNOWLEDGE_DB.prepare(
     `INSERT INTO knowledge_changes
       (document_id,action,from_version,to_version,actor,summary,content_sha256,changed_at)
-     VALUES (?,?,?,?,?,?,?,?)`
+     SELECT ?,?,?,?,?,?,?,? WHERE changes()=1`
   ).bind(doc.id,changeAction,current?.version??null,nextVersion,actor,doc.summary,hash,timestamp);
 
-  await env.KNOWLEDGE_DB.batch([docStmt,changeStmt]);
-  return getDocument(env,doc.id);
+  const [write]=await env.KNOWLEDGE_DB.batch([docStmt,changeStmt]);
+  if(write.meta.changes!==1) throw new Error('version_conflict');
+  return {
+    id:doc.id,kind:doc.kind,title:doc.title,body_md:doc.bodyMd,status:doc.status,
+    version:nextVersion,source:doc.source,source_ref:doc.sourceRef,content_sha256:hash,
+    created_at:current?.created_at||timestamp,updated_at:timestamp
+  };
 }
 
 export async function importDocuments(env,documents,{actor='migration'}={}){

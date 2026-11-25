@@ -21,7 +21,7 @@ function writeEnabled(env){
   return env.LUNA_MCP_WRITE_ENABLED==='true';
 }
 
-function createLunaMcpServer(env,{publicOnly=false}={}){
+function createLunaMcpServer(env,{publicOnly=false,readOnly=false}={}){
   const server=new McpServer({name:MCP_NAME,version:MCP_VERSION});
 
   server.registerTool('knowledge_status',{
@@ -55,7 +55,7 @@ function createLunaMcpServer(env,{publicOnly=false}={}){
     }),
     annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}
   },async(args)=>{
-    try{return ok({ok:true,documents:await listDocuments(env,args)});}
+    try{return ok({ok:true,documents:await listDocuments(env,readOnly?{...args,status:'active'}:args)});}
     catch(error){return fail(error);}
   });
 
@@ -68,7 +68,7 @@ function createLunaMcpServer(env,{publicOnly=false}={}){
     }),
     annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}
   },async({query,kind,limit})=>{
-    try{return ok({ok:true,query,documents:await searchDocuments(env,query,{kind,limit})});}
+    try{return ok({ok:true,query,documents:await searchDocuments(env,query,{kind,limit,status:readOnly?'active':null})});}
     catch(error){return fail(error);}
   });
 
@@ -79,11 +79,13 @@ function createLunaMcpServer(env,{publicOnly=false}={}){
   },async({id})=>{
     try{
       const document=await getDocument(env,id);
-      return document?ok({ok:true,document}):fail(new Error('document_not_found'));
+      return document&&(!readOnly||document.status==='active')
+        ?ok({ok:true,document})
+        :fail(new Error('document_not_found'));
     }catch(error){return fail(error);}
   });
 
-  if(writeEnabled(env)){
+  if(!readOnly&&writeEnabled(env)){
     server.registerTool('create_memory_candidate',{
       description:'Create an observing memory candidate in canonical D1. This does not formally promote anything into Second Brain.',
       inputSchema:z.object({
@@ -109,6 +111,7 @@ function createLunaMcpServer(env,{publicOnly=false}={}){
         bodyMd:z.string().min(1),
         status:z.enum(['draft','active','archived']),
         expectedVersion:z.number().int().min(0),
+        expectedHash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
         source:z.string().max(120).optional(),
         sourceRef:z.string().max(500).optional(),
         summary:z.string().max(500).optional()
@@ -125,20 +128,39 @@ function createLunaMcpServer(env,{publicOnly=false}={}){
 
 export async function handleMcpRequest(request,env,ctx){
   const url=new URL(request.url);
-  if(url.pathname!=='/mcp') return null;
+  const readOnly=url.pathname==='/knowledge/mcp';
+  if(!readOnly&&url.pathname!=='/mcp') return null;
 
   if(env.LUNA_MCP_ENABLED!=='true'){
     return Response.json({ok:false,error:'luna_mcp_disabled'},{status:503,headers:{'Cache-Control':'no-store'}});
   }
 
-  const authMode=env.LUNA_MCP_AUTH_MODE||'access';
-  if(!['none','access'].includes(authMode)){
+  const authMode=readOnly?'read-bearer':env.LUNA_MCP_AUTH_MODE||'access';
+  if(!['none','access','read-bearer'].includes(authMode)){
     return Response.json({ok:false,error:'invalid_mcp_auth_mode'},{status:503,headers:{'Cache-Control':'no-store'}});
   }
   if(authMode==='access'&&!request.headers.get('Cf-Access-Jwt-Assertion')){
     return Response.json({ok:false,error:'cloudflare_access_required'},{status:401,headers:{'Cache-Control':'no-store'}});
   }
+  if(authMode==='read-bearer'){
+    const token=env.LUNA_MCP_READ_TOKEN;
+    const authorization=request.headers.get('Authorization')||'';
+    if(!token||!authorization.startsWith('Bearer ')){
+      return Response.json({ok:false,error:'mcp_read_authorization_required'},{status:401,headers:{'Cache-Control':'no-store'}});
+    }
+    const encoder=new TextEncoder();
+    const [provided,expected]=await Promise.all([
+      crypto.subtle.digest('SHA-256',encoder.encode(authorization.slice(7))),
+      crypto.subtle.digest('SHA-256',encoder.encode(token))
+    ]);
+    if(!crypto.subtle.timingSafeEqual(provided,expected)){
+      return Response.json({ok:false,error:'mcp_read_authorization_required'},{status:401,headers:{'Cache-Control':'no-store'}});
+    }
+  }
 
-  const handler=createMcpHandler(()=>createLunaMcpServer(env,{publicOnly:authMode==='none'}));
+  const handler=createMcpHandler(()=>createLunaMcpServer(env,{
+    publicOnly:authMode==='none',
+    readOnly:authMode==='read-bearer'
+  }),{route:url.pathname});
   return handler(request,env,ctx);
 }
