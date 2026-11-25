@@ -10,8 +10,8 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.0.0",
-    "agents": "^0.20.1",
+    "@modelcontextprotocol/server": "2.4.0",
+    "agents": "0.34.0",
     "zod": "^4.4.3"
   }
 }
